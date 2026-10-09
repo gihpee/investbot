@@ -14,15 +14,19 @@ from investbot.adapters.rss.collector import RssCollector
 from investbot.adapters.tinvest.broker import TInvestBroker, open_broker
 from investbot.core.models import AssetClass, InstrumentMeta
 from investbot.data.db import make_engine
+from investbot.data.manual_repo import DbManualStore
 from investbot.data.news_repo import NewsRepo
 from investbot.data.quality import gate_news
-from investbot.journal.store import Journal
+from investbot.journal.db_store import DbJournal
+from investbot.journal.store import Journal, JournalLike
 from investbot.news.linking import AliasIndex, load_aliases
 from investbot.news.sources import load_sources
 from investbot.ops.degradation import GateResult
+from investbot.portfolio.manual_store import ManualStore, YamlManualStore
 from investbot.rebalance.models import CostModel, Quote, TaxModel
 from investbot.services.allocation import AllocationService
 from investbot.services.calendar import CalendarService
+from investbot.services.manual import ManualEditor
 from investbot.services.news import AliasProvider, NewsService
 from investbot.services.portfolio import BrokerSnapshotCache, PortfolioService
 from investbot.services.proxies import ProxyStore
@@ -101,6 +105,7 @@ class Services:
     rebalance: RebalanceService
     calendar: CalendarService
     news: NewsService
+    manual: ManualEditor
     broker: TInvestBroker | None
 
     async def held_tickers(self) -> list[str]:
@@ -158,9 +163,20 @@ async def build_services(settings: Settings) -> AsyncIterator[Services]:
         iss = await stack.enter_async_context(
             IssClient(verify=str(settings.ca_bundle) if settings.ca_bundle else True)
         )
-        journal = Journal(settings.data_dir / "journal.jsonl")
-        portfolio = PortfolioService(broker, settings.manual_portfolio_path, settings.ips_path,
+        engine = make_engine(settings.db_url())
+        stack.push_async_callback(engine.dispose)
+        journal: JournalLike
+        manual_store: ManualStore
+        if settings.storage == "db":
+            journal, manual_store = DbJournal(engine), DbManualStore(engine)
+        else:
+            journal = Journal(settings.data_dir / "journal.jsonl")
+            manual_store = YamlManualStore(settings.manual_portfolio_path)
+        portfolio = PortfolioService(broker, manual_store, settings.ips_path,
                                      cache=BrokerSnapshotCache(settings.data_dir / "snapshots"))
+        editor = ManualEditor(manual_store, journal)
+        if broker is not None:
+            editor.set_broker_accounts({a.account_id for a in await broker.accounts()})
         allocation = AllocationService(
             portfolio=portfolio,
             proxies=ProxyStore(settings.data_dir / "proxies", iss.index_closes),
@@ -188,8 +204,6 @@ async def build_services(settings: Settings) -> AsyncIterator[Services]:
             extra_gates=extra_gates,
         )
         calendar = CalendarService(portfolio, broker, iss.bondization)
-        engine = make_engine(settings.db_url())
-        stack.push_async_callback(engine.dispose)
         rss = await stack.enter_async_context(
             RssCollector(verify=str(settings.ca_bundle) if settings.ca_bundle else True)
         )
@@ -202,4 +216,4 @@ async def build_services(settings: Settings) -> AsyncIterator[Services]:
         )
         news_holder.append(news)
         yield Services(settings=settings, portfolio=portfolio, allocation=allocation, rebalance=rebalance,
-                       calendar=calendar, news=news, broker=broker)
+                       calendar=calendar, news=news, manual=editor, broker=broker)

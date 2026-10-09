@@ -51,6 +51,30 @@ def _db(settings: Settings, action: str) -> int:
     return 0
 
 
+def _import(settings: Settings, what: str, path: Path, replace: bool) -> int:
+    """Перенос ручного портфеля (YAML) или файлового журнала (JSONL) в БД."""
+    from investbot.data.db import make_engine
+    from investbot.data.manual_import import import_yaml
+    from investbot.data.manual_repo import DbManualStore
+    from investbot.journal.db_store import DbJournal, import_file_journal
+    from investbot.journal.store import Journal
+
+    _db(settings, "upgrade")
+
+    async def go() -> int:
+        engine = make_engine(settings.db_url())
+        try:
+            if what == "manual":
+                return await import_yaml(path, DbManualStore(engine), replace=replace)
+            return await import_file_journal(Journal(path), DbJournal(engine))
+        finally:
+            await engine.dispose()
+
+    n = asyncio.run(go())
+    print(f"Импортировано: {n} {'счетов' if what == 'manual' else 'записей журнала'}")
+    return 0
+
+
 def _portfolio(settings: Settings) -> int:
     from investbot.bootstrap import build_services
     from investbot.channels.telegram.render import title
@@ -71,6 +95,7 @@ def _portfolio(settings: Settings) -> int:
         for warning in ov.warnings:
             print(f"⚠️  {warning}")
 
+    _db(settings, "upgrade")
     asyncio.run(go())
     return 0
 
@@ -169,6 +194,10 @@ def main(argv: list[str] | None = None) -> int:
     certs.add_argument("--dir", type=Path, default=Path("docker/certs"))
     db = sub.add_parser("db", help="миграции БД")
     db.add_argument("action", choices=["upgrade", "current"])
+    imp = sub.add_parser("import", help="перенести ручной портфель (YAML) или журнал (JSONL) в БД")
+    imp.add_argument("what", choices=["manual", "journal"])
+    imp.add_argument("path", type=Path)
+    imp.add_argument("--replace", action="store_true", help="для manual: заменить уже сохранённые в БД счета")
     sub.add_parser("portfolio", help="показать портфель в терминале")
     sub.add_parser("bot", help="запустить Telegram-бота")
     args = parser.parse_args(argv)
@@ -182,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
             return _certs(settings, args.dir)
         case "db":
             return _db(settings, args.action)
+        case "import":
+            return _import(settings, args.what, args.path, args.replace)
         case "portfolio":
             return _portfolio(settings)
         case "bot":

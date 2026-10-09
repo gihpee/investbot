@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     data_dir: Path = Path("data/local")
     # postgresql+asyncpg://user:pass@host/db в проде; по умолчанию — SQLite в data_dir (локальный запуск)
     database_url: SecretStr | None = None
+    # где хранить ручной портфель и журнал: db (по умолчанию) или files (YAML и JSONL — для отладки)
+    storage: Literal["db", "files"] = "db"
 
     privacy_mode: Literal["weights", "full"] = "weights"  # N4: в Telegram по умолчанию только доли
     quantity_message_ttl_sec: int = 600  # сообщение с количествами удаляется через 10 минут
