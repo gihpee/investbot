@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Atom-лента</title>
+  <id>urn:uuid:60a76c80-d399-11d9-b93C-0003939e0af6</id>
+  <updated>2026-10-09T08:00:00Z</updated>
+  <link href="https://atom.example.ru/"/>
+  <entry>
+    <title type="html">&lt;i&gt;Банк России&lt;/i&gt; сохранил ставку</title>
+    <id>urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a</id>
+    <link rel="alternate" href="https://atom.example.ru/news/42?utm_medium=atom&amp;page=2"/>
+    <published>2026-10-09T10:15:00+03:00</published>
+    <updated>2026-10-09T11:00:00+03:00</updated>
+    <summary type="html">&lt;p&gt;Совет директоров &amp;laquo;сохранил&amp;raquo; ключевую ставку&lt;/p&gt;</summary>
+    <category term="Денежно-кредитная политика"/>
+  </entry>
+  <entry>
+    <title>Только дата обновления</title>
+    <id>tag:atom.example.ru,2026:43</id>
+    <link rel="alternate" href="/news/43"/>
+    <updated>2026-10-09T06:30:00Z</updated>
+    <content type="html">&lt;p&gt;Текст только в content&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title>Без даты</title>
+    <id>tag:atom.example.ru,2026:44</id>
+    <link rel="alternate" href="https://atom.example.ru/news/44"/>
+  </entry>
+</feed>

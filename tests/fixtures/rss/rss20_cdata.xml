@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Фикстура в духе ленты ТАСС: категории, CDATA с HTML, guid и без guid, дубль, javascript-ссылка. -->
+<rss version="2.0">
+  <channel>
+    <title>Тестовая лента</title>
+    <link>https://news.example.ru/</link>
+    <description>Фикстура investbot</description>
+    <item>
+      <title><![CDATA[Сбербанк &laquo;отчитался&raquo; за <b>сентябрь</b>]]></title>
+      <link>https://News.Example.ru/economy/1001?utm_source=rss&amp;utm_medium=feed&amp;yclid=123#top</link>
+      <guid isPermaLink="false">tass-1001</guid>
+      <description><![CDATA[<p>Чистая прибыль&nbsp;выросла &mdash; <a href="https://news.example.ru/x">подробнее</a></p><script>alert(1)</script><br/>Вторая&#160;строка]]></description>
+      <pubDate>Thu, 08 Oct 2026 19:30:00 +0300</pubDate>
+      <category>Экономика и бизнес</category>
+    </item>
+    <item>
+      <title>ОФЗ подешевели</title>
+      <link>https://News.Example.ru/economy/1002?from=rss&amp;id=7&amp;fbclid=abc#comments</link>
+      <description>Индекс RGBI снизился &amp; доходности выросли.</description>
+      <category>  экономика   и бизнес </category>
+      <category>Финансы</category>
+    </item>
+    <item>
+      <title>Футбол: итоги тура</title>
+      <link>https://news.example.ru/sport/1003</link>
+      <guid isPermaLink="false">tass-1003</guid>
+      <pubDate>Thu, 08 Oct 2026 16:00:00 GMT</pubDate>
+      <category>Спорт</category>
+    </item>
+    <item>
+      <title>Новость без рубрики</title>
+      <link>https://news.example.ru/1004</link>
+      <guid isPermaLink="false">tass-1004</guid>
+      <pubDate>Thu, 08 Oct 2026 15:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Дубль первой новости</title>
+      <link>https://news.example.ru/economy/1001</link>
+      <guid isPermaLink="false">tass-1001</guid>
+      <category>Экономика и бизнес</category>
+    </item>
+    <item>
+      <title>Ссылка со скриптом</title>
+      <link>javascript:alert(1)</link>
+      <guid isPermaLink="false">tass-1006</guid>
+      <pubDate>Thu, 08 Oct 2026 14:00:00 GMT</pubDate>
+      <category>Экономика и бизнес</category>
+    </item>
+  </channel>
+</rss>

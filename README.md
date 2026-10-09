@@ -23,7 +23,10 @@
 | Недельный отчёт и `/report`, `/invest`, кнопки «принять / отложить / пропустить» с записью в журнал, количества по кнопке с автоудалением | `src/investbot/channels/telegram/report.py`, `services/rebalance.py` | ✅ |
 | Календарь: купоны, оферты, погашения, дивиденды, ЦФА; `/calendar` и блок в отчёте | `src/investbot/calendar`, `services/calendar.py` | ✅ |
 | Расписание: отчёт по субботам 10:00 МСК, ежедневная проверка прав токена | `src/investbot/jobs` | ✅ |
-| `investbot doctor` / `certs` / `portfolio` / `bot` | `src/investbot/cli.py` | ✅ |
+| Архив новостей: 18 RSS-лент (СМИ, ЦБ, MOEX, Smart-lab) + лента News Т-Инвестиций, дедупликация сюжетов (SHA-1 + MinHash), привязка к бумагам по тикеру, ISIN и названию в падежах | `src/investbot/news`, `adapters/rss`, `services/news.py` | ✅ живой сбор проверен: 13 из 18 лент отвечают с зарубежного IP |
+| Новостной фон без LLM: `/news`, блок в недельном отчёте, всплески внимания (buzz_z), здоровье источников в `/status` | `channels/telegram/news.py` | ✅ |
+| БД: SQLAlchemy Core + alembic, Postgres 17 (прод) / SQLite (локально и в тестах) | `src/investbot/data`, `migrations/` | ✅ миграции проверены на Postgres 17 |
+| `investbot doctor` / `certs` / `db upgrade` / `portfolio` / `bot` | `src/investbot/cli.py` | ✅ |
 
 ## Быстрый старт (локально)
 
@@ -43,6 +46,10 @@ cp .env.example .env
 
 ```bash
 uv run investbot doctor
+```
+
+```bash
+uv run investbot db upgrade
 ```
 
 ```bash
@@ -102,3 +109,6 @@ uv run lint-imports
 ```
 
 `tests/security` проверяет, что в коде нет торговых вызовов SDK, а секреты не попадают в repr настроек.
+
+Тесты репозитория БД дополнительно гоняются на Postgres, если задан `INVESTBOT_TEST_PG_URL`
+(база с применёнными миграциями), например во временном контейнере `postgres:17-alpine`.

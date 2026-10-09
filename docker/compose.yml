@@ -1,14 +1,40 @@
-# Эскиз для VPS (Ф0). Postgres и Redis подключатся вместе с журналом и FSM диалогов (Ф1–Ф2a).
+# VPS в РФ (ADR-04): бот, Postgres. Туннель к Telegram (xray) — отдельным сервисом при необходимости.
 name: investbot
 
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: investbot
+      POSTGRES_USER: investbot
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
+    secrets: [pg_password]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U investbot -d investbot"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
   bot:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
     env_file: ../.env
     environment:
       INVESTBOT_CA_BUNDLE: /app/data/local/ca-bundle.pem
+      # пароль подставляется из секрета при старте, в .env его нет
+      PG_PASSWORD_FILE: /run/secrets/pg_password
+    secrets: [pg_password]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        export INVESTBOT_DATABASE_URL="postgresql+asyncpg://investbot:$$(cat $$PG_PASSWORD_FILE)@postgres/investbot"
+        && /app/.venv/bin/investbot db upgrade && exec /app/.venv/bin/investbot bot
     volumes:
       - ../config/ips.yaml:/app/config/ips.yaml
       - ../config/manual_portfolio.yaml:/app/config/manual_portfolio.yaml
@@ -17,3 +43,10 @@ services:
     read_only: true
     tmpfs: [/tmp]
     security_opt: ["no-new-privileges:true"]
+
+secrets:
+  pg_password:
+    file: ../secrets/pg_password   # создайте файл со случайным паролем; каталог secrets/ не в git
+
+volumes:
+  pgdata:

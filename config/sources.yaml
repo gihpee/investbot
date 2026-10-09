@@ -1,0 +1,240 @@
+# Реестр новостных источников (ARCHITECTURE §5.7, §8.2 п. 1). Читает investbot.news.sources.load_sources.
+#
+# Поля:
+#   key            — ключ источника: пишется в RawNewsItem.source и source_health
+#   kind           — rss | tinvest_news
+#   url            — адрес ленты (для tinvest_news — только gRPC-хост, нужен doctor --network и egress allowlist)
+#   poll_sec       — интервал опроса; при «пробитии» (все элементы ответа новые) планировщик временно делит его на 2
+#   priority       — P0 (обязательные) / P1 (дополнительные) / P2 (только счётчики, позже)
+#   q_src          — вес достоверности в признаках (docs/research/04, «Достоверность источника»; стартовые
+#                    значения — оценка, калибруются в Ф4): раскрытие, MOEX, ЦБ — 1,0; Интерфакс, ТАСС, Ведомости,
+#                    Коммерсант — 0,9; брокеры — 0,7
+#   encoding       — принудительная кодировка ответа; без неё кодировку определяет feedparser
+#   category_filter— allowlist значений <category> (без учёта регистра и лишних пробелов); пусто — без фильтра.
+#                    Элемент без категорий при включённом фильтре отбрасывается
+#   license_tag    — headline_link_only: пользователю — только заголовок, время и ссылка (§1.3)
+#   tos_ml_allowed — можно ли отдавать тексты в LLM-разметку (§8.2 п. 6)
+#
+# URL RSS проверены 2026-10-09 с зарубежного IP (docs/research/03, п. 1.1, 2.1, 2.2). Боевой опрос — только
+# с RU-egress (ADR-04): набор геоблоков зависит от IP и меняется.
+#
+# Не входят сюда по ADR-12: Telegram-каналы, Пульс. Форум и теги Smart-lab (P2, только счётчики внимания) —
+# позже, отдельным видом источника. MOEX ISS sitenews (JSON, инкремент по id) читает адаптер ISS, не RSS.
+version: 1
+
+sources:
+  # --- P0 ------------------------------------------------------------------------------------------------
+  - key: tinvest_news
+    title: "Т-Инвестиции: News"
+    kind: tinvest_news
+    url: "https://invest-public-api.tbank.ru"  # gRPC; цепочка Russian Trusted Root CA
+    poll_sec: 900
+    priority: P0
+    q_src: 0.8  # агрегатор: первоисточник в поле source элемента; состав источников [проверить] в Ф0
+    enabled: true
+    # Лицензия контента News не описана (docs/research/01) — до спайка Ф0 тексты в LLM не отдаём.
+    tos_ml_allowed: false
+
+  - key: moex_news
+    title: "Мосбиржа: новости (RSS)"
+    kind: rss
+    url: "https://www.moex.com/export/news.aspx?cat=100"
+    # 903 элемента / ~38 дней, ~5 МБ с полным текстом: раз в час достаточно (элементы живут в ленте больше месяца).
+    # В Ф0 проверить поддержку условного GET; свежесть 10 мин даст ISS sitenews.
+    poll_sec: 3600
+    priority: P0
+    q_src: 1.0
+    enabled: true
+    tos_ml_allowed: true
+
+  - key: cbr_news
+    title: "Банк России: что нового на сайте"
+    kind: rss
+    url: "https://www.cbr.ru/rss/RssNews"  # в списке ЦБ — http://, берём https
+    poll_sec: 600  # 100 элементов / ~10 дней
+    priority: P0
+    q_src: 1.0
+    enabled: true
+    tos_ml_allowed: true
+
+  - key: cbr_events
+    title: "Банк России: новости, интервью, выступления"
+    kind: rss
+    url: "https://www.cbr.ru/rss/eventrss"
+    poll_sec: 600  # 100 элементов / ~83 дня
+    priority: P0
+    q_src: 1.0
+    enabled: true
+    tos_ml_allowed: true
+
+  - key: cbr_press
+    title: "Банк России: пресс-релизы"
+    kind: rss
+    url: "https://www.cbr.ru/rss/RssPress"
+    poll_sec: 600  # 16 элементов / ~28 дней
+    priority: P0
+    q_src: 1.0
+    enabled: true
+    tos_ml_allowed: true
+
+  - key: interfax
+    title: "Интерфакс"
+    kind: rss
+    url: "https://www.interfax.ru/rss"
+    # 25 элементов / ~1,4–1,6 ч — опрос 10 мин обязателен. Категории: «В России», «В мире», «Экономика», «Спорт»;
+    # фильтра нет: лента короткая, отсев по релевантности — на связывании с бумагами.
+    poll_sec: 600
+    priority: P0
+    q_src: 0.9
+    enabled: true
+    tos_ml_allowed: true
+
+  - key: tass
+    title: "ТАСС"
+    kind: rss
+    url: "https://tass.ru/rss/v2.xml"
+    poll_sec: 600  # 100 элементов / ~1 ч, из них ~26–31% «Экономика и бизнес»
+    priority: P0
+    q_src: 0.9
+    enabled: true
+    category_filter: ["Экономика и бизнес"]
+    tos_ml_allowed: true
+
+  - key: vedomosti_investments
+    title: "Ведомости: Инвестиции"
+    kind: rss
+    url: "https://www.vedomosti.ru/rss/rubric/investments"
+    poll_sec: 1800  # 200 элементов / ~85 дней: по глубине хватило бы 1 ч, 30 мин — ради свежести
+    priority: P0
+    q_src: 0.9
+    enabled: true
+    tos_ml_allowed: true
+
+  - key: vedomosti_markets
+    title: "Ведомости: Финансы / Рынки"
+    kind: rss
+    url: "https://www.vedomosti.ru/rss/rubric/finance/markets"
+    poll_sec: 1800  # 200 элементов, глубина с 2020 г.
+    priority: P0
+    q_src: 0.9
+    enabled: true
+    tos_ml_allowed: true
+
+  - key: finam_conews
+    title: "Финам: новости компаний"
+    kind: rss
+    url: "https://www.finam.ru/analysis/conews/rsspoint/"
+    poll_sec: 1800  # 100 элементов / ~76 ч
+    priority: P0
+    q_src: 0.7  # брокер
+    enabled: true
+    tos_ml_allowed: true
+
+  - key: smartlab_news
+    title: "Smart-lab: новости"
+    kind: rss
+    url: "https://smart-lab.ru/news/rss/"
+    poll_sec: 900  # 50 элементов / ~7 ч
+    priority: P0
+    q_src: 0.6  # оценка: короткие маркет-новости, не первоисточник
+    enabled: true
+    tos_ml_allowed: true
+
+  - key: smartlab_disclosure
+    title: "Smart-lab: лента раскрытия"
+    kind: rss
+    url: "https://smart-lab.ru/disclosure/rss/"
+    # 50 элементов; лаг ~1,5–2 суток [проверить] — в PIT учитывается через first_seen_at
+    poll_sec: 900
+    priority: P0
+    q_src: 0.9  # зеркало официального раскрытия
+    enabled: true
+    tos_ml_allowed: true
+
+  # --- P1 ------------------------------------------------------------------------------------------------
+  - key: frankmedia
+    title: "Frank Media"
+    kind: rss
+    url: "https://frankmedia.ru/feed"
+    poll_sec: 1800  # 60 элементов / ~51 ч, полный текст в content:encoded (в lead берём только description)
+    priority: P1
+    q_src: 0.8
+    enabled: true
+    tos_ml_allowed: true
+
+  - key: thebell
+    title: "The Bell"
+    kind: rss
+    url: "https://thebell.io/feed"
+    poll_sec: 1800  # 20 элементов / ~67 ч
+    priority: P1
+    q_src: 0.8
+    enabled: true
+    tos_ml_allowed: true
+
+  - key: finmarket_main
+    title: "Финмаркет: главное"
+    kind: rss
+    url: "https://www.finmarket.ru/rss/mainnews.asp"
+    poll_sec: 1800  # 20 элементов / ~7 дней
+    priority: P1
+    q_src: 0.8
+    enabled: true
+    encoding: windows-1251
+    tos_ml_allowed: true
+
+  - key: finmarket_banks
+    title: "Финмаркет: банки"
+    kind: rss
+    url: "https://www.finmarket.ru/rss/news.asp"
+    poll_sec: 1800  # 20 элементов / ~3,5 дня
+    priority: P1
+    q_src: 0.8
+    enabled: true
+    encoding: windows-1251
+    tos_ml_allowed: true
+
+  # С NL-IP не отвечали; с GB-IP 2026-10-09 — 200, RSS 2.0. Пометка: проверить с российского IP в Ф0.
+  - key: kommersant
+    title: "Коммерсантъ"
+    kind: rss
+    url: "https://www.kommersant.ru/rss/news.xml"  # /RSS/news.xml редиректит сюда
+    poll_sec: 900  # 594 элемента / ~62 ч, лид в description
+    priority: P1
+    q_src: 0.9
+    enabled: true
+    tos_ml_allowed: true
+
+  # С NL-IP не отвечали; с GB-IP 2026-10-09 — 200, только заголовки. Пометка: проверить с российского IP в Ф0.
+  - key: ria
+    title: "РИА Новости"
+    kind: rss
+    url: "https://ria.ru/export/rss2/archive/index.xml"
+    poll_sec: 600  # 97 элементов / ~1,75 ч — опрос ≤ 10 мин
+    priority: P1
+    q_src: 0.8  # оценка: в таблице q_src (docs/research/04) РИА нет
+    enabled: true
+    tos_ml_allowed: true
+
+  # С NL-IP не отвечали; с GB-IP 2026-10-09 — 200, только заголовки. Пометка: проверить с российского IP в Ф0.
+  - key: prime
+    title: "ПРАЙМ"
+    kind: rss
+    url: "https://1prime.ru/export/rss2/index.xml"
+    poll_sec: 900  # 100 элементов / ~4,6 ч
+    priority: P1
+    q_src: 0.8  # оценка: в таблице q_src (docs/research/04) ПРАЙМ нет
+    enabled: true
+    tos_ml_allowed: true
+
+  # Не отвечал ни с NL-IP (таймаут), ни с GB-IP (401); URL из практики прошлых лет, не проверен.
+  # Пометка: проверить с российского IP в Ф0, после проверки — enabled: true.
+  - key: rbc
+    title: "РБК"
+    kind: rss
+    url: "https://rssexport.rbc.ru/rbcnews/news/30/full.rss"
+    poll_sec: 900
+    priority: P1
+    q_src: 0.9
+    enabled: false
+    tos_ml_allowed: true

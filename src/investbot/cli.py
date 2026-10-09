@@ -8,6 +8,8 @@ import sys
 from datetime import date
 from pathlib import Path
 
+import structlog
+
 from investbot.ops.logging import setup_logging
 from investbot.settings import Settings
 
@@ -27,6 +29,25 @@ def _certs(settings: Settings, certs_dir: Path) -> int:
     out = settings.ca_bundle or settings.data_dir / "ca-bundle.pem"
     path = build_ca_bundle(certs_dir, out)
     print(f"CA bundle: {path}\nДобавьте в .env: INVESTBOT_CA_BUNDLE={path}")
+    return 0
+
+
+ROOT = Path(__file__).resolve().parents[2]
+log = structlog.get_logger(__name__)
+
+
+def _db(settings: Settings, action: str) -> int:
+    from alembic import command
+    from alembic.config import Config
+
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    cfg = Config(str(ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(ROOT / "migrations"))
+    cfg.set_main_option("sqlalchemy.url", settings.db_url().replace("%", "%%"))
+    if action == "upgrade":
+        command.upgrade(cfg, "head")
+    else:
+        command.current(cfg, verbose=True)
     return 0
 
 
@@ -62,6 +83,7 @@ def _bot(settings: Settings) -> int:
     from investbot.channels.telegram.allocation import build_allocation_router
     from investbot.channels.telegram.app import run_bot
     from investbot.channels.telegram.calendar import build_calendar_router, calendar_block
+    from investbot.channels.telegram.news import build_news_router, news_block
     from investbot.channels.telegram.report import ReportCenter, build_report_router
     from investbot.jobs.scheduler import SingleInstanceLock, build_scheduler
 
@@ -70,6 +92,7 @@ def _bot(settings: Settings) -> int:
         return 2
     token = settings.telegram_bot_token.get_secret_value()
     owner = settings.owner_telegram_id
+    _db(settings, "upgrade")  # до запуска event loop: env.py alembic сам вызывает asyncio.run
 
     async def go() -> None:
         lock = SingleInstanceLock(settings.data_dir / "scheduler.lock")
@@ -77,8 +100,16 @@ def _bot(settings: Settings) -> int:
         try:
             async with build_services(settings) as services:
                 async def events_block(as_of: date) -> str | None:
+                    blocks: list[str] = []
                     result = await services.calendar.upcoming(as_of, days=7)
-                    return calendar_block(result.events, as_of, days=7) or None
+                    if cal := calendar_block(result.events, as_of, days=7):
+                        blocks.append(cal)
+                    try:
+                        if nb := news_block(await services.news.background(await services.held_tickers())):
+                            blocks.append(nb)
+                    except Exception as e:
+                        log.warning("report.news_block_failed", error=type(e).__name__)
+                    return "\n\n".join(blocks) or None
 
                 center = ReportCenter(services.rebalance, settings.privacy_mode,
                                       settings.quantity_message_ttl_sec, events_block)
@@ -99,9 +130,17 @@ def _bot(settings: Settings) -> int:
                             await bot.send_message(owner, f"⛔ {e}\nБот остановлен. Выпустите токен «только чтение».")
                             await dp.stop_polling()
 
+                    async def news_rss() -> None:
+                        await services.news.collect_due()
+
+                    async def news_tinvest() -> None:
+                        await services.news.collect_tinvest()
+
                     build_scheduler(settings.tz, {
                         "weekly_report": (settings.weekly_report_cron, weekly),
                         "daily_readonly_check": (settings.daily_check_cron, daily_check),
+                        "news_rss": ("*/5 * * * *", news_rss),  # каждый источник — со своим poll_sec
+                        "news_tinvest": ("*/15 * * * *", news_tinvest),
                     }).start()
 
                 await run_bot(
@@ -110,6 +149,7 @@ def _bot(settings: Settings) -> int:
                         build_allocation_router(services.allocation),
                         build_report_router(center),
                         build_calendar_router(services.calendar),
+                        build_news_router(services.news, services.held_tickers),
                     ),
                     on_startup=startup,
                 )
@@ -127,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("doctor", help="проверить сеть, сертификаты, SDK и права токена")
     certs = sub.add_parser("certs", help="собрать CA bundle: системные корни + сертификаты из каталога")
     certs.add_argument("--dir", type=Path, default=Path("docker/certs"))
+    db = sub.add_parser("db", help="миграции БД")
+    db.add_argument("action", choices=["upgrade", "current"])
     sub.add_parser("portfolio", help="показать портфель в терминале")
     sub.add_parser("bot", help="запустить Telegram-бота")
     args = parser.parse_args(argv)
@@ -138,6 +180,8 @@ def main(argv: list[str] | None = None) -> int:
             return _doctor(settings)
         case "certs":
             return _certs(settings, args.dir)
+        case "db":
+            return _db(settings, args.action)
         case "portfolio":
             return _portfolio(settings)
         case "bot":

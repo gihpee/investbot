@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     ca_bundle: Path | None = None  # системные корни + Russian Trusted Root CA (investbot certs)
     config_dir: Path = Path("config")
     data_dir: Path = Path("data/local")
+    # postgresql+asyncpg://user:pass@host/db в проде; по умолчанию — SQLite в data_dir (локальный запуск)
+    database_url: SecretStr | None = None
 
     privacy_mode: Literal["weights", "full"] = "weights"  # N4: в Telegram по умолчанию только доли
     quantity_message_ttl_sec: int = 600  # сообщение с количествами удаляется через 10 минут
@@ -53,6 +55,11 @@ class Settings(BaseSettings):
         if self.tinvest_token is not None:
             tokens.setdefault("main", self.tinvest_token.get_secret_value())
         return tokens if self.tinvest_sync else {}
+
+    def db_url(self) -> str:
+        if self.database_url is not None:
+            return self.database_url.get_secret_value()
+        return f"sqlite+aiosqlite:///{self.data_dir / 'investbot.db'}"
 
     @property
     def ips_path(self) -> Path:

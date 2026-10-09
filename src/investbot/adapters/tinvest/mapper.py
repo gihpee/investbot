@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -24,6 +25,8 @@ from investbot.core.models import (
     Position,
 )
 from investbot.core.money import ZERO, from_units_nano
+from investbot.news.models import RawNewsItem
+from investbot.news.text import canonical_url, clip, normalize_ws, strip_html
 from investbot.portfolio.buckets import RATING_ORDINAL, rating_ordinal
 
 _ACCOUNT_KINDS = {
@@ -351,3 +354,90 @@ def map_last_prices(last_prices: Any, meta_by_uid: dict[str, InstrumentMeta]) ->
             price = price * meta.nominal / 100
         out[uid] = price
     return out
+
+
+# --- Лента новостей InstrumentsService.News (с 1.49) ------------------------------------------------------
+#
+# Поля по docs/research/01 (proto и OpenAPI 1.51): items[] — id, source, title, content, summary (опц.), tables[],
+# instrument_id[] (упомянутые бумаги), priority, ts; в ответе has_next, next_cursor. Не подтверждены и читаются
+# через getattr с запасным значением:
+# - форма instrument_id[]: в примере SDK из отчёта тикер вложен (`ni.instrument.ticker`), в описании полей —
+#   плоский (`instrument_uid`/`ticker`/`class_code`); поддержаны оба, элементы без тикера пропускаются;
+# - тип priority (флаг «важная новость» или число/enum) — приводится к int;
+# - текст: `summary`, затем `content` (по описанию полей), затем `text` (на случай другого имени);
+# - ссылка на первоисточник: в отчёте её нет, пробуем `url` и `link`;
+# - первоисточник `source` («Интерфакс» и т. п.): в RawNewsItem отдельного поля нет, кладётся в categories
+#   с префиксом NEWS_ORIGIN_PREFIX.
+
+TINVEST_NEWS_SOURCE = "tinvest_news"  # ключ источника в config/sources.yaml
+NEWS_ORIGIN_PREFIX = "source:"
+NEWS_LEAD_MAX = 1000
+NEWS_TITLE_MAX = 500
+
+
+def _utc_ts(x: Any) -> datetime | None:
+    """datetime SDK (или protobuf Timestamp) → tz-aware UTC; пустая дата protobuf (1970-01-01) → None."""
+    if isinstance(x, datetime):
+        dt = (x if x.tzinfo else x.replace(tzinfo=UTC)).astimezone(UTC)
+        return None if dt.year <= 1970 else dt
+    seconds = getattr(x, "seconds", None)
+    if seconds:
+        return datetime.fromtimestamp(int(seconds) + int(getattr(x, "nanos", 0) or 0) / 1e9, UTC)
+    return None
+
+
+def _news_priority(p: Any) -> int | None:
+    if p is None:
+        return None
+    if isinstance(p, bool):
+        return int(p)
+    try:
+        return int(getattr(p, "value", p))
+    except (TypeError, ValueError):
+        return None
+
+
+def _news_tickers(refs: Any) -> tuple[str, ...]:
+    out: list[str] = []
+    for ref in refs or ():
+        inner = getattr(ref, "instrument", None)
+        ticker = (getattr(inner, "ticker", None) if inner is not None else None) or getattr(ref, "ticker", None)
+        t = str(ticker or "").strip()
+        if t and t not in out:
+            out.append(t)
+    return tuple(out)
+
+
+def _news_url(n: Any) -> str | None:
+    for name in ("url", "link"):
+        raw = str(getattr(n, name, "") or "").strip()
+        if raw.lower().startswith(("http://", "https://")):
+            return canonical_url(raw)
+    return None
+
+
+def map_news_item(n: Any, now: datetime) -> RawNewsItem:
+    """Элемент `News` → RawNewsItem: связи с бумагами — тикеры из instrument_id[] (метод связывания "api")."""
+    if now.tzinfo is None:
+        raise ValueError("now должен быть tz-aware")
+    text = next((str(v) for name in ("summary", "content", "text") if (v := getattr(n, name, None))), "")
+    lead = clip(strip_html(text), NEWS_LEAD_MAX)
+    title = clip(strip_html(str(getattr(n, "title", "") or "")), NEWS_TITLE_MAX) or clip(lead, NEWS_TITLE_MAX)
+    published = _utc_ts(getattr(n, "ts", None))
+    news_id = str(getattr(n, "id", "") or "").strip()
+    if not news_id:
+        basis = f"{published.isoformat() if published else ''}|{title}"
+        news_id = "sha1:" + hashlib.sha1(basis.encode(), usedforsecurity=False).hexdigest()
+    origin = normalize_ws(str(getattr(n, "source", "") or ""))
+    return RawNewsItem(
+        source=TINVEST_NEWS_SOURCE,
+        external_id=news_id,
+        url=_news_url(n),
+        title=title,
+        lead=lead,
+        published_at=published,
+        fetched_at=now.astimezone(UTC),
+        instrument_tickers=_news_tickers(getattr(n, "instrument_id", None)),
+        priority=_news_priority(getattr(n, "priority", None)),
+        categories=(f"{NEWS_ORIGIN_PREFIX}{origin}",) if origin else (),
+    )

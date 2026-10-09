@@ -21,3 +21,6 @@ docker/certs/*.crt
 docker/certs/*.pem
 !docker/certs/README.md
 vendor/wheels/*.whl
+
+# локальная БД
+*.db

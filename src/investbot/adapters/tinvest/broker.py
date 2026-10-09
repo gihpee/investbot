@@ -20,10 +20,14 @@ from investbot.adapters.tinvest.guard import ReadOnlyClientGuard, TradingAccessE
 from investbot.adapters.tinvest.ratelimit import ServiceLimits
 from investbot.calendar.models import CalendarEvent
 from investbot.core.models import Account, AccountKind, BrokerPortfolio, InstrumentMeta, UserInfo
+from investbot.news.models import RawNewsItem
 
 log = structlog.get_logger(__name__)
 
 ClientFactory = Callable[[str], AbstractAsyncContextManager[Any]]
+
+NEWS_PAGE_LIMIT = 200  # как в примере SDK из отчёта 01
+NEWS_MAX_LIMIT = 1000  # limit по умолчанию у сервера; больше не запрашиваем
 
 
 class SdkNotInstalled(RuntimeError):
@@ -239,6 +243,31 @@ class TInvestBroker:
             )
             out.update(mapper.map_last_prices(resp.last_prices, meta))
         return out
+
+    # --- Лента новостей InstrumentsService.News (с 1.49, §5.7 и §8.2 п. 1) --------------------------------
+
+    async def news_page(
+        self, cursor: str | None, limit: int = NEWS_PAGE_LIMIT
+    ) -> tuple[list[RawNewsItem], str | None]:
+        """Одна страница `News(NewsRequest(limit, cursor))`: элементы и курсор следующей страницы.
+
+        Фильтров по тикеру и дате у метода нет — только курсор. Курсор следующей страницы возвращается, если
+        `has_next`, иначе None. Направление курсора (к более старым или к более новым новостям) и глубина ленты
+        в отчёте 01 не описаны — [проверить] в спайке Ф0; хранение курсора в БД — у вызывающего (§8.2).
+        Только чтение: InstrumentsService, бюджет сервиса `instruments`.
+        """
+        if not 1 <= limit <= NEWS_MAX_LIMIT:
+            raise ValueError(f"limit News должен быть в 1..{NEWS_MAX_LIMIT}, получено {limit}")
+        client = self._clients[0]
+        params: dict[str, Any] = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        await self._limits.take("instruments")
+        resp = await client.instruments.news(request=self.s.NewsRequest(**params))
+        now = datetime.now(UTC)
+        items = [mapper.map_news_item(n, now) for n in getattr(resp, "items", None) or ()]
+        next_cursor = str(getattr(resp, "next_cursor", "") or "") if getattr(resp, "has_next", False) else ""
+        return items, next_cursor or None
 
 
 LAST_PRICES_BATCH = 100  # лимит числа инструментов в одном GetLastPrices не документирован — берём с запасом

@@ -15,6 +15,12 @@ dependencies = [
     "scipy>=1.14",
     "certifi",
     "apscheduler>=3.11,<4",
+    "feedparser>=6.0.11",
+    "datasketch>=1.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "aiosqlite>=0.20",
+    "alembic>=1.14",
 ]
 
 [project.optional-dependencies]

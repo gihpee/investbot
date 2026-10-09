@@ -14,6 +14,8 @@ RUN if ls /app/vendor/wheels/*.whl >/dev/null 2>&1; then \
 
 COPY src/ ./src/
 COPY config/ ./config/
+COPY migrations/ ./migrations/
+COPY alembic.ini ./
 RUN uv sync --frozen --no-dev
 
 RUN useradd --create-home --uid 10001 investbot && mkdir -p /app/data/local && chown -R investbot /app/data
