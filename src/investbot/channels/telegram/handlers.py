@@ -20,10 +20,13 @@ BTN_PORTFOLIO = "📊 Портфель"
 BTN_ALLOCATION = "🎯 Аллокация"
 BTN_STATUS = "⚙️ Статус"
 BTN_CALENDAR = "🗓 Календарь"
+BTN_MANUAL = "✍️ Ручной портфель"  # обрабатывается роутером channels/telegram/edit.py
+BTN_NEWS = "📰 Новости"  # обрабатывается роутером channels/telegram/news.py
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     keyboard=[[KeyboardButton(text=BTN_PORTFOLIO), KeyboardButton(text=BTN_ALLOCATION)],
-              [KeyboardButton(text=BTN_CALENDAR), KeyboardButton(text=BTN_STATUS)]],
+              [KeyboardButton(text=BTN_CALENDAR), KeyboardButton(text=BTN_NEWS)],
+              [KeyboardButton(text=BTN_MANUAL), KeyboardButton(text=BTN_STATUS)]],
     resize_keyboard=True,
 )
 
@@ -33,7 +36,8 @@ WELCOME = (
     "• Показываю доли портфеля, отклонения от целевой аллокации и события по бумагам.\n"
     "• По умолчанию не пишу в Telegram рублёвые суммы и количества — только доли.\n\n"
     "Команды: /portfolio — портфель, /report — план ребалансировки, /invest 50000 — распределить пополнение, "
-    "/calendar — купоны и дивиденды, /allocation — конструктор аллокации, /status — состояние.\n"
+    "/calendar — купоны и дивиденды, /news — новостной фон, /allocation — конструктор аллокации, "
+    "/edit — ручной портфель (другие брокеры, ЦФА), /status — состояние.\n"
     "Недельный отчёт приходит сам по субботам в 10:00 МСК."
 )
 

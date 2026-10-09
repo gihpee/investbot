@@ -12,12 +12,13 @@
 |---|---|---|
 | Доменное ядро: счета, позиции, снимок, факты | `src/investbot/core` | ✅ |
 | Адаптер Т-Инвестиций, только чтение: проверка прав токена (fail-closed), блокировка торговых сервисов, лимиты API | `src/investbot/adapters/tinvest` | ✅ код и тесты на фейковом SDK; живая проверка — после установки SDK |
-| Ручные счета и карточки ЦФА (YAML), запрет двойного учёта | `src/investbot/portfolio/manual.py` | ✅ |
+| Ручные счета и карточки ЦФА: ввод в боте (`/edit`, мастера бумаги, ЦФА по 7176-У, денег), хранение в БД, запрет двойного учёта | `portfolio/manual*.py`, `services/manual.py`, `channels/telegram/edit.py` | ✅ |
 | Отнесение бумаг к бакетам, шкала рейтингов, оценка в ₽ | `src/investbot/portfolio` | ✅ |
 | IPS (целевая аллокация), коридоры, дрейф | `src/investbot/rebalance` | ✅ |
 | Клиент MOEX ISS (история, облигации, КБД, индексы) | `src/investbot/adapters/moex_iss` | ✅ код и тесты на фикстурах; живая проверка — с российского IP |
 | Конструктор аллокации: анкета, варианты A/B/C, правки кнопками, утверждение IPS (§10.8) | `src/investbot/allocation`, `services/allocation.py`, `channels/telegram/allocation.py` | ✅ |
-| Журнал решений с хэш-цепочкой (JSONL до появления Postgres) | `src/investbot/journal` | ✅ |
+| Журнал решений с хэш-цепочкой в БД; изменение и удаление записей запрещены триггерами | `src/investbot/journal` | ✅ |
+| Деградация L0–L4 и гейты данных: при недоступности брокера — план по снимку ≤ 7 дней без продаж; нет цен — частичный отчёт | `ops/degradation.py`, `data/quality.py` | ✅ |
 | Telegram-бот: только владелец, `/portfolio`, `/allocation`, `/status`, только доли в чате | `src/investbot/channels/telegram` | ✅ |
 | Движок ребалансировки: коридоры, cash-first, продажи до точки возврата, MILP по лотам, комиссии, налог по FIFO-лотам из операций с учётом ЛДВ, лимиты, проверка выгоды | `src/investbot/rebalance`, `portfolio/taxlots.py` | ✅ (валюта, стресс-режим — следующие шаги) |
 | Недельный отчёт и `/report`, `/invest`, кнопки «принять / отложить / пропустить» с записью в журнал, количества по кнопке с автоудалением | `src/investbot/channels/telegram/report.py`, `services/rebalance.py` | ✅ |
@@ -88,7 +89,9 @@ uv pip install "t-tech-investments==1.51.0" --index-url https://opensource.tbank
 
 ## Ручной портфель и IPS
 
-- `config/manual_portfolio.yaml` — счета у других брокеров и ЦФА (пример: `config/manual_portfolio.example.yaml`).
+- Счета у других брокеров, ЦФА и деньги на них вводятся в боте командой `/edit` и хранятся в БД.
+  Если удобнее файлом — заполните YAML по образцу `config/manual_portfolio.example.yaml` и перенесите его:
+  `uv run investbot import manual config/manual_portfolio.yaml`.
 - `config/ips.yaml` — утверждённая целевая аллокация (пример: `config/ips.example.yaml`).
   Её будет создавать конструктор аллокации в боте; до этого бот работает в режиме «только мониторинг».
 

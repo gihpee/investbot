@@ -80,3 +80,11 @@ async def test_owner_only_middleware_drops_strangers() -> None:
     assert await mw(handler, message(42), {"event_from_user": NS(id=42)}) == "ok"
     assert await mw(handler, message(7), {"event_from_user": NS(id=7)}) is None
     assert len(called) == 1
+
+
+def test_reply_keyboard_buttons_match_routers() -> None:
+    from investbot.channels.telegram import edit, handlers, news
+
+    assert handlers.BTN_MANUAL == edit.BTN_MANUAL and handlers.BTN_NEWS == news.BTN_NEWS
+    texts = {b.text for row in handlers.MAIN_KEYBOARD.keyboard for b in row}
+    assert {handlers.BTN_MANUAL, handlers.BTN_NEWS, handlers.BTN_PORTFOLIO, handlers.BTN_STATUS} <= texts

@@ -108,6 +108,7 @@ def _bot(settings: Settings) -> int:
     from investbot.channels.telegram.allocation import build_allocation_router
     from investbot.channels.telegram.app import run_bot
     from investbot.channels.telegram.calendar import build_calendar_router, calendar_block
+    from investbot.channels.telegram.edit import build_edit_router
     from investbot.channels.telegram.news import build_news_router, news_block
     from investbot.channels.telegram.report import ReportCenter, build_report_router
     from investbot.jobs.scheduler import SingleInstanceLock, build_scheduler
@@ -175,6 +176,7 @@ def _bot(settings: Settings) -> int:
                         build_report_router(center),
                         build_calendar_router(services.calendar),
                         build_news_router(services.news, services.held_tickers),
+                        build_edit_router(services.manual),  # последним: шаги мастеров принимают свободный текст
                     ),
                     on_startup=startup,
                 )
