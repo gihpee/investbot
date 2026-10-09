@@ -1,0 +1,25 @@
+# ПРИМЕР IPS (вымышленные значения, не рекомендация).
+# Рабочий файл — config/ips.yaml (не в git). Обычно его создаёт конструктор аллокации в боте
+# после того, как вы утвердите вариант; руками править тоже можно.
+version: 1
+buckets:            # target и полосы: band_abs (п.п.) и band_rel (доля от цели); действует более узкая
+  equity_ru:        {target: 0.40, band_abs: 0.05, band_rel: 0.25}
+  ofz_fixed:        {target: 0.20, band_abs: 0.04, band_rel: 0.25}
+  ofz_float_linker: {target: 0.08, band_abs: 0.03, band_rel: 0.25}
+  corp_ig:          {target: 0.15, band_abs: 0.04, band_rel: 0.25}
+  corp_hy:          {target: 0.00, cap: 0.03}
+  money_market:     {target: 0.10, band_abs: 0.03, band_rel: 0.30}
+  gold:             {target: 0.03, band_abs: 0.02, band_rel: 0.50}
+  dfa:              {target: 0.04, cap: 0.07}
+  fx_cash:          {target: 0.00, cap: 0.05}
+instrument_buckets: {}   # ручное отнесение фондов и бумаг к бакетам, например {SOMEFUND: corp_ig}
+limits:
+  max_issuer_total: 0.10
+  max_sector: 0.25
+  min_trade_rub: 3000
+  max_weekly_turnover: 0.10
+  cash_reserve_rub: 10000
+rules:
+  return_to_band_fraction: 0.875
+  cashflow_first: true
+  ig_min_rating: "A-"

@@ -1,0 +1,39 @@
+[importlinter]
+root_package = investbot
+include_external_packages = True
+
+# ADR-05: торговые сервисы SDK недоступны коду бота. Импорт SDK разрешён только адаптеру tinvest.
+[importlinter:contract:sdk-only-in-adapter]
+name = SDK Т-Инвестиций используется только в adapters.tinvest
+type = forbidden
+source_modules =
+    investbot.core
+    investbot.portfolio
+    investbot.rebalance
+    investbot.allocation
+    investbot.channels
+    investbot.adapters.moex_iss
+forbidden_modules =
+    t_tech
+
+# Доменное ядро не зависит от каналов доставки и адаптеров.
+[importlinter:contract:core-independent]
+name = Доменное ядро не импортирует адаптеры и каналы
+type = forbidden
+source_modules =
+    investbot.core
+    investbot.portfolio
+    investbot.rebalance
+    investbot.allocation
+forbidden_modules =
+    investbot.adapters
+    investbot.channels
+
+# ADR-17: каналы работают через доменные сервисы, не через адаптеры напрямую.
+[importlinter:contract:channels-no-adapters]
+name = Каналы не импортируют адаптеры
+type = forbidden
+source_modules =
+    investbot.channels
+forbidden_modules =
+    investbot.adapters

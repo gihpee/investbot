@@ -1,0 +1,18 @@
+{
+"amortizations": {
+	"columns": ["isin", "name", "issuevalue", "amortdate", "facevalue", "initialfacevalue", "faceunit", "valueprc", "value", "value_rub", "data_source", "secid", "primary_boardid"],
+	"data": [
+	]
+},
+"coupons": {
+	"columns": ["isin", "name", "issuevalue", "coupondate", "recorddate", "startdate", "initialfacevalue", "facevalue", "faceunit", "value", "valueprc", "value_rub", "secid", "primary_boardid"],
+	"data": [
+		["RU000A10FLT1", "ПАО Пример БО-01", 5000000000, "2027-03-11", "2027-03-10", "2026-12-10", 1000, 1000, "RUB", null, null, null, "RU000A10FLT1", "TQCB"],
+		["RU000A10FLT1", "ПАО Пример БО-01", 5000000000, "2027-06-10", "2027-06-09", "2027-03-11", 1000, 1000, "RUB", null, null, null, "RU000A10FLT1", "TQCB"]
+	]
+},
+"offers": {
+	"columns": ["isin", "name", "issuevalue", "offerdate", "offerdatestart", "offerdateend", "facevalue", "faceunit", "price", "value", "agent", "offertype", "secid", "primary_boardid"],
+	"data": [
+	]
+}}

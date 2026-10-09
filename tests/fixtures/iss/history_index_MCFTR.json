@@ -1,0 +1,14 @@
+{
+"history": {
+	"columns": ["BOARDID", "SECID", "TRADEDATE", "SHORTNAME", "NAME", "CLOSE", "OPEN", "HIGH", "LOW", "VALUE", "DURATION", "YIELD", "DECIMALS", "CAPITALIZATION", "CURRENCYID", "DIVISOR", "TRADINGSESSION", "VOLUME"],
+	"data": [
+		["SNDX", "MCFTR", "2026-10-05", "MCFTR", "Индекс МосБиржи полной доходности брутто", 7123.45, 7090.12, 7135.01, 7080.2, 0, null, null, 2, null, "RUB", null, 3, null],
+		["SNDX", "MCFTR", "2026-10-06", "MCFTR", "Индекс МосБиржи полной доходности брутто", 7151.07, 7123.45, 7160.88, 7112.3, 0, null, null, 2, null, "RUB", null, 3, null]
+	]
+},
+"history.cursor": {
+	"columns": ["INDEX", "TOTAL", "PAGESIZE"],
+	"data": [
+		[0, 2, 100]
+	]
+}}

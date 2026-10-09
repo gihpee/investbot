@@ -1,0 +1,32 @@
+{
+"description": {
+	"columns": ["name", "title", "value", "type", "sort_order", "is_hidden", "precision"],
+	"data": [
+		["SECID", "Код ценной бумаги", "SBER", "string", 1, 0, null],
+		["NAME", "Полное наименование", "Сбербанк России ПАО ао", "string", 3, 0, null],
+		["SHORTNAME", "Краткое наименование", "Сбербанк", "string", 4, 0, null],
+		["ISIN", "ISIN код", "RU0009029540", "string", 5, 0, null],
+		["REGNUMBER", "Номер государственной регистрации", "10301481B", "string", 6, 0, null],
+		["ISSUESIZE", "Объем выпуска", "21586948000", "number", 7, 0, null],
+		["FACEVALUE", "Номинальная стоимость", "3", "number", 8, 0, 2],
+		["FACEUNIT", "Валюта номинала", "SUR", "string", 9, 0, null],
+		["ISSUEDATE", "Дата начала торгов", "2007-07-20", "date", 10, 0, null],
+		["LATNAME", "Английское наименование", "Sberbank", "string", 12, 0, null],
+		["LISTLEVEL", "Уровень листинга", "1", "number", 14, 0, null],
+		["ISQUALIFIEDINVESTORS", "Бумаги для квалифицированных инвесторов", "0", "boolean", 15, 0, null],
+		["TYPENAME", "Вид/категория ценной бумаги", "Акция обыкновенная", "string", 19, 0, null],
+		["GROUP", "Код типа инструмента", "stock_shares", "string", 20, 1, null],
+		["TYPE", "Тип бумаги", "common_share", "string", 21, 0, null],
+		["GROUPNAME", "Типа инструмента", "Акции", "string", 22, 0, null],
+		["EMITTER_ID", "Код эмитента", "1199", "number", 23, 0, null]
+	]
+},
+"boards": {
+	"columns": ["secid", "boardid", "title", "board_group_id", "market_id", "market", "engine_id", "engine", "is_traded", "decimals", "history_from", "history_till", "listed_from", "listed_till", "is_primary", "currencyid"],
+	"data": [
+		["SBER", "EQBR", "Основной режим: А1-Акции и паи - безадрес.", 6, 1, "shares", 1, "stock", 0, 2, "2011-11-21", "2013-08-30", "2011-11-21", "2013-08-30", 0, "RUB"],
+		["SBER", "TQBR", "Т+: Акции и ДР - безадрес.", 57, 1, "shares", 1, "stock", 1, 2, "2013-03-25", "2026-10-08", "2013-03-25", "2026-10-09", 1, "RUB"],
+		["SBER", "SMAL", "Т+: Неполные лоты (акции) - безадрес.", 57, 1, "shares", 1, "stock", 1, 2, "2013-03-25", "2026-10-08", "2013-03-25", "2026-10-09", 0, "RUB"],
+		["SBER", "SPEQ", "Поставка по СК (акции) - безадрес.", 57, 1, "shares", 1, "stock", 1, 2, "2013-03-25", "2026-10-08", "2013-03-25", "2026-10-09", 0, "RUB"]
+	]
+}}

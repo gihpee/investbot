@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+dist/
+build/
+*.egg-info/
+
+# секреты и локальные данные — никогда не в git
+.env
+.env.*
+!.env.example
+secrets/
+data/local/
+config/ips.yaml
+config/manual_portfolio.yaml
+docker/certs/*.crt
+docker/certs/*.pem
+!docker/certs/README.md
+vendor/wheels/*.whl

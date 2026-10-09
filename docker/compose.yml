@@ -1,0 +1,19 @@
+# Эскиз для VPS (Ф0). Postgres и Redis подключатся вместе с журналом и FSM диалогов (Ф1–Ф2a).
+name: investbot
+
+services:
+  bot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    env_file: ../.env
+    environment:
+      INVESTBOT_CA_BUNDLE: /app/data/local/ca-bundle.pem
+    volumes:
+      - ../config/ips.yaml:/app/config/ips.yaml
+      - ../config/manual_portfolio.yaml:/app/config/manual_portfolio.yaml
+      - ../data/local:/app/data/local
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]

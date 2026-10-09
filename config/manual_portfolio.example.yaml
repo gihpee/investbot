@@ -1,0 +1,34 @@
+# ПРИМЕР ручного портфеля (вымышленные данные). Рабочий файл — config/manual_portfolio.yaml (не в git).
+# Сюда — только то, чего не видно в API Т-Инвестиций: другие брокеры, ЦФА, режим без токена.
+# Счета Т-Инвестиций, читаемые по токену, сюда добавлять нельзя (бот откажется: двойной учёт).
+accounts:
+  - id: dfa_tbank
+    name: Смарт-счёт ЦФА (Т-Банк)
+    kind: dfa
+    tinvest_account_id: "0000000000"   # ID смарт-счёта из /status: сумма карточек сверяется с API
+    positions:
+      - ticker: ЦФА-ПРИМЕР-1
+        name: Эмитент Б, фикс. 18% годовых
+        asset_class: dfa
+        qty: 5
+        nominal: 10000                 # модельная цена ЦФА с фикс. выплатами = номинал
+        operator: Атомайз              # лимит 7176-У считается по оператору
+        rating: ruA+
+        maturity: 2027-06-30
+
+  - id: other_broker
+    name: Другой брокер
+    kind: broker
+    positions:
+      - ticker: SU26XXXRMFS0
+        name: ОФЗ 26XXX
+        asset_class: bond
+        qty: 10
+        price_pct: 98.5                # можно цену в % номинала…
+        nominal: 1000
+        accrued: 12.3                  # НКД на 1 шт.
+        is_government: true
+        coupon_kind: fixed
+        price_date: 2026-10-09
+    cash:
+      rub: 15000

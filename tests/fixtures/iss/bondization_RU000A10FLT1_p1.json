@@ -1,0 +1,22 @@
+{
+"amortizations": {
+	"columns": ["isin", "name", "issuevalue", "amortdate", "facevalue", "initialfacevalue", "faceunit", "valueprc", "value", "value_rub", "data_source", "secid", "primary_boardid"],
+	"data": [
+		["RU000A10FLT1", "ПАО Пример БО-01", 5000000000, "2027-06-10", 1000, 1000, "RUB", 50, 500, 500, "amortization", "RU000A10FLT1", "TQCB"],
+		["RU000A10FLT1", "ПАО Пример БО-01", 5000000000, "2027-12-09", 500, 1000, "RUB", 50, 500, 500, "maturity", "RU000A10FLT1", "TQCB"]
+	]
+},
+"coupons": {
+	"columns": ["isin", "name", "issuevalue", "coupondate", "recorddate", "startdate", "initialfacevalue", "facevalue", "faceunit", "value", "valueprc", "value_rub", "secid", "primary_boardid"],
+	"data": [
+		["RU000A10FLT1", "ПАО Пример БО-01", 5000000000, "2026-06-11", "2026-06-10", "2026-03-12", 1000, 1000, "RUB", 44.88, 18, 44.88, "RU000A10FLT1", "TQCB"],
+		["RU000A10FLT1", "ПАО Пример БО-01", 5000000000, "2026-09-10", "2026-09-09", "2026-06-11", 1000, 1000, "RUB", 42.38, 17, 42.38, "RU000A10FLT1", "TQCB"],
+		["RU000A10FLT1", "ПАО Пример БО-01", 5000000000, "2026-12-10", "2026-12-09", "2026-09-10", 1000, 1000, "RUB", 39.89, 16, 39.89, "RU000A10FLT1", "TQCB"]
+	]
+},
+"offers": {
+	"columns": ["isin", "name", "issuevalue", "offerdate", "offerdatestart", "offerdateend", "facevalue", "faceunit", "price", "value", "agent", "offertype", "secid", "primary_boardid"],
+	"data": [
+		["RU000A10FLT1", "ПАО Пример БО-01", 5000000000, "2027-03-11", "2027-02-25", "2027-03-03", 1000, "RUB", 100, 1000, "АО Пример Брокер", "Оферта (Put)", "RU000A10FLT1", "TQCB"]
+	]
+}}

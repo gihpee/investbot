@@ -1,0 +1,13 @@
+{
+"history": {
+	"columns": ["BOARDID", "TRADEDATE", "SHORTNAME", "SECID", "NUMTRADES", "VALUE", "OPEN", "LOW", "HIGH", "LEGALCLOSEPRICE", "WAPRICE", "CLOSE", "VOLUME", "MARKETPRICE2", "MARKETPRICE3", "ADMITTEDQUOTE", "MP2VALTRD", "MARKETPRICE3TRADESVALUE", "ADMITTEDVALUE", "WAVAL", "TRADINGSESSION", "CURRENCYID", "TRENDCLSPR"],
+	"data": [
+		["TQBR", "2026-10-07", "Сбербанк", "SBER", 0, 0, null, null, null, 303.9, null, null, 0, 303.9, 303.9, null, 0, 0, null, 0, 3, "SUR", null]
+	]
+},
+"history.cursor": {
+	"columns": ["INDEX", "TOTAL", "PAGESIZE"],
+	"data": [
+		[2, 3, 2]
+	]
+}}
