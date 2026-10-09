@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Mapping
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import structlog
@@ -16,6 +16,7 @@ from investbot.core.models import AccountKind, AssetClass, PortfolioSnapshot, St
 from investbot.core.money import ZERO
 from investbot.journal.store import Journal
 from investbot.portfolio.buckets import classify
+from investbot.portfolio.taxlots import TaxLot, TradeOp, build_lots, reconcile
 from investbot.rebalance.ips import IPS
 from investbot.rebalance.models import CashBalanceRub, CostModel, Holding, PlanInput, Quote, RebalancePlan, TaxModel
 from investbot.rebalance.planner import plan_invest, plan_rebalance
@@ -25,6 +26,9 @@ log = structlog.get_logger(__name__)
 
 # тикеры → котировки (носители бакетов и бумаги, которых нет в портфеле); bucket — для какого бакета нужен тикер
 QuoteProvider = Callable[[Mapping[str, str]], Awaitable[dict[str, Quote]]]
+TradeOpsProvider = Callable[[str, datetime], Awaitable[list[TradeOp]]]  # (счёт, с какого момента) → сделки
+HISTORY_SINCE = datetime(2014, 1, 1, tzinfo=UTC)  # ЛДВ действует для бумаг, купленных с 2014 года
+TAXED_KINDS = (AccountKind.BROKER,)
 
 Decision = str  # "accept" | "postpone" | "skip"
 DECISIONS = ("accept", "postpone", "skip")
@@ -35,6 +39,7 @@ class PreparedPlan(Strict):
     overview: PortfolioOverview
     plan: RebalancePlan
     account_names: dict[str, str]
+    notes: tuple[str, ...] = ()  # примечания сервиса (сверка лотов и т. п.), показываются в отчёте
 
 
 def build_plan_input(
@@ -46,6 +51,7 @@ def build_plan_input(
     cash_in: Decimal = ZERO,
     cash_in_account: str | None = None,
     allow_sells: bool = True,
+    lots: Mapping[tuple[str, str], tuple[TaxLot, ...]] | None = None,
 ) -> PlanInput:
     """В сделках MVP-1a участвуют только рублёвые бумаги с ценой; остальное (валюта, ЦФА, без цены) — в NAV."""
     kinds = {a.account_id: a.kind for a in snap.accounts}
@@ -64,6 +70,7 @@ def build_plan_input(
                 account_id=p.account_id, account_kind=kinds.get(p.account_id, AccountKind.OTHER),
                 instrument=p.instrument, bucket=bucket, qty=p.qty, price=p.price, accrued=p.accrued,
                 avg_price=p.avg_price, blocked_qty=p.blocked_qty,
+                tax_lots=(lots or {}).get((p.account_id, p.instrument.ticker), ()),
             ))
         elif p.value is not None:
             rate = fx.get(p.instrument.currency.lower())
@@ -96,9 +103,10 @@ def resolve_account(snap: PortfolioSnapshot, hint: str | None) -> str | None:
 
 class RebalanceService:
     def __init__(self, portfolio: PortfolioService, quotes: QuoteProvider | None, journal: Journal,
-                 costs: CostModel, tax: TaxModel) -> None:
+                 costs: CostModel, tax: TaxModel, trade_ops: TradeOpsProvider | None = None) -> None:
         self._portfolio = portfolio
         self._quotes = quotes
+        self._trade_ops = trade_ops
         self._journal = journal
         self._costs = costs
         self._tax = tax
@@ -112,6 +120,34 @@ class RebalanceService:
             log.warning("rebalance.quotes_failed", error=type(e).__name__)
             return {}
 
+    async def _tax_lots(self, snap: PortfolioSnapshot) -> tuple[dict[tuple[str, str], tuple[TaxLot, ...]], list[str]]:
+        """FIFO-лоты по брокерским счетам Т-Инвестиций, сверенные с количеством в портфеле."""
+        if self._trade_ops is None:
+            return {}, []
+        kinds = {a.account_id: a for a in snap.accounts}
+        out: dict[tuple[str, str], tuple[TaxLot, ...]] = {}
+        notes: list[str] = []
+        accounts = sorted({p.account_id for p in snap.positions if p.source == "broker"
+                           and (a := kinds.get(p.account_id)) is not None and a.kind in TAXED_KINDS})
+        for account_id in accounts:
+            try:
+                built = build_lots(await self._trade_ops(account_id, HISTORY_SINCE))
+            except Exception as e:
+                log.warning("rebalance.trade_ops_failed", error=type(e).__name__)
+                notes.append("история операций недоступна — налог оценён по средней цене")
+                continue
+            for p in snap.positions:
+                if p.account_id != account_id:
+                    continue
+                res = built.get((account_id, p.instrument.ticker))
+                if res is None:
+                    continue
+                if (diff := reconcile(res, p.qty)) is not None:
+                    notes.append(f"{p.instrument.ticker}: {diff}")
+                    continue
+                out[(account_id, p.instrument.ticker)] = res.lots
+        return out, notes
+
     async def _prepare(self, as_of: date, cash_in: Decimal, account_hint: str | None,
                        allow_sells: bool, kind: str) -> PreparedPlan:
         snap, fx = await self._portfolio.snapshot()
@@ -121,13 +157,15 @@ class RebalanceService:
         if ips is None:
             raise LookupError("целевая аллокация не утверждена — сначала /allocation")
         quotes = await self._carrier_quotes(ips)
-        inp = build_plan_input(snap, fx, ips, as_of, quotes, cash_in, cash_in_account, allow_sells)
+        lots, lot_notes = await self._tax_lots(snap) if allow_sells else ({}, [])
+        inp = build_plan_input(snap, fx, ips, as_of, quotes, cash_in, cash_in_account, allow_sells, lots)
         costs, tax = self._costs, self._tax
         plan = plan_invest(inp, ips, costs, tax) if kind == "invest" else plan_rebalance(inp, ips, costs, tax)
         record = self._journal.append(kind, {"plan": plan.model_dump(mode="json"), "ips_version": ips.version})
         return PreparedPlan(
             plan_id=record["hash"][:12], overview=overview, plan=plan,
             account_names={a.account_id: a.name for a in snap.accounts},
+            notes=tuple(lot_notes),
         )
 
     async def weekly_plan(self, as_of: date) -> PreparedPlan:

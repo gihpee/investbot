@@ -226,3 +226,63 @@ async def test_broker_refuses_full_access_token() -> None:
         async with TInvestBroker({"main": "t.fake"}, factory_for(Access.ACCOUNT_ACCESS_LEVEL_FULL_ACCESS),
                                  FakeSchemas):
             pass
+
+
+class OpType(Enum):
+    OPERATION_TYPE_BUY = 15
+    OPERATION_TYPE_SELL = 22
+    OPERATION_TYPE_COUPON = 23
+    OPERATION_TYPE_INPUT_SECURITIES = 9
+
+
+def test_map_trade_op_kinds_qty_commission() -> None:
+    from datetime import UTC, datetime
+
+    meta = {"uid-a": mapper.map_share(NS(ticker="AAAA", name="А", currency="rub", isin=None, uid="uid-a",
+                                         class_code="TQBR", lot=10))}
+    when = datetime(2023, 5, 1, 10, tzinfo=UTC)
+    buy = mapper.map_trade_op("B", NS(type=OpType.OPERATION_TYPE_BUY, quantity=20, date=when, instrument_uid="uid-a",
+                                      price=m("150"), commission=m("-4.5")), meta)
+    assert buy is not None and buy.kind == "buy" and buy.ticker == "AAAA" and buy.qty == 20
+    assert buy.price == Decimal(150) and buy.commission == Decimal("4.5")
+    transfer = mapper.map_trade_op("B", NS(type=OpType.OPERATION_TYPE_INPUT_SECURITIES, quantity=5, date=when,
+                                           instrument_uid="uid-a", price=m("0"), commission=None), meta)
+    assert transfer is not None and transfer.kind == "transfer_in" and transfer.price is None
+    coupon = mapper.map_trade_op("B", NS(type=OpType.OPERATION_TYPE_COUPON, quantity=0, date=when,
+                                         instrument_uid="uid-a", price=m("0"), commission=None), meta)
+    assert coupon is None
+
+
+async def test_broker_trade_ops_pages_through_cursor() -> None:
+    from datetime import UTC, datetime
+
+    when = datetime(2023, 5, 1, 10, tzinfo=UTC)
+    pages = {
+        "": NS(items=[NS(type=OpType.OPERATION_TYPE_BUY, quantity=10, date=when, instrument_uid="uid-a",
+                         price=m("100"), commission=m("-1"))], has_next=True, next_cursor="c1"),
+        "c1": NS(items=[NS(type=OpType.OPERATION_TYPE_SELL, quantity=5, date=when, instrument_uid="uid-a",
+                           price=m("120"), commission=m("-1"))], has_next=False, next_cursor=""),
+    }
+
+    class OpsSchemas(FakeSchemas):
+        OperationType = OpType
+
+        @staticmethod
+        def GetOperationsByCursorRequest(**kw: Any) -> NS:
+            return NS(**kw)
+
+    services = fake_services(Access.ACCOUNT_ACCESS_LEVEL_READ_ONLY)
+
+    async def get_operations_by_cursor(request: Any) -> NS:
+        assert OpType.OPERATION_TYPE_COUPON not in request.operation_types
+        return pages[request.cursor]
+
+    services.operations.get_operations_by_cursor = get_operations_by_cursor
+
+    @asynccontextmanager
+    async def factory(token: str) -> Any:
+        yield services
+
+    async with TInvestBroker({"main": "t.fake"}, factory, OpsSchemas) as broker:
+        ops = await broker.trade_ops("A1", datetime(2014, 1, 1, tzinfo=UTC))
+    assert [(o.kind, o.qty, o.ticker) for o in ops] == [("buy", 10, "AAAA"), ("sell", 5, "AAAA")]

@@ -19,7 +19,7 @@
 | Конструктор аллокации: анкета, варианты A/B/C, правки кнопками, утверждение IPS (§10.8) | `src/investbot/allocation`, `services/allocation.py`, `channels/telegram/allocation.py` | ✅ |
 | Журнал решений с хэш-цепочкой (JSONL до появления Postgres) | `src/investbot/journal` | ✅ |
 | Telegram-бот: только владелец, `/portfolio`, `/allocation`, `/status`, только доли в чате | `src/investbot/channels/telegram` | ✅ |
-| Движок ребалансировки: коридоры, cash-first, продажи до точки возврата, MILP по лотам, комиссии, налог (по средней цене), лимиты, проверка выгоды | `src/investbot/rebalance` | ✅ (FIFO/ЛДВ, валюта, стресс-режим — следующие шаги) |
+| Движок ребалансировки: коридоры, cash-first, продажи до точки возврата, MILP по лотам, комиссии, налог по FIFO-лотам из операций с учётом ЛДВ, лимиты, проверка выгоды | `src/investbot/rebalance`, `portfolio/taxlots.py` | ✅ (валюта, стресс-режим — следующие шаги) |
 | Недельный отчёт и `/report`, `/invest`, кнопки «принять / отложить / пропустить» с записью в журнал, количества по кнопке с автоудалением | `src/investbot/channels/telegram/report.py`, `services/rebalance.py` | ✅ |
 | Календарь: купоны, оферты, погашения, дивиденды, ЦФА; `/calendar` и блок в отчёте | `src/investbot/calendar`, `services/calendar.py` | ✅ |
 | Расписание: отчёт по субботам 10:00 МСК, ежедневная проверка прав токена | `src/investbot/jobs` | ✅ |

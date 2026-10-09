@@ -32,6 +32,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from investbot.allocation.models import bucket_title
 from investbot.core.models import AccountKind, AssetClass, InstrumentMeta
 from investbot.core.money import ONE, ZERO, pct, pp, round_money, safe_div
+from investbot.portfolio.taxlots import TaxLot, estimate_sale
 from investbot.rebalance.drift import BucketDrift, compute_drift
 from investbot.rebalance.ips import IPS
 from investbot.rebalance.limits import Breach, LimitContext, Trade, cash_after, check_hard_limits, values_after
@@ -102,6 +103,7 @@ class _LegInfo:
     accrued: Decimal
     avg_price: Decimal | None
     account_kind: AccountKind
+    tax_lots: tuple[TaxLot, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -276,8 +278,13 @@ class _Planner:
     def _fee_rate(self, ticker: str) -> Decimal:
         return self.costs.fee_overrides.get(ticker, self.costs.broker_fee_rate)
 
-    def _tax(self, price: Decimal, avg: Decimal | None, kind: AccountKind, qty: Decimal) -> Decimal:
-        if kind not in self.tax.taxed_kinds or avg is None:
+    def _tax(self, price: Decimal, avg: Decimal | None, kind: AccountKind, qty: Decimal,
+             lots: tuple[TaxLot, ...] = ()) -> Decimal:
+        if kind not in self.tax.taxed_kinds:
+            return ZERO
+        if lots:
+            return estimate_sale(lots, qty, price, self.inp.as_of, self.tax.rate).tax
+        if avg is None:
             return ZERO
         return max(ZERO, price - avg) * qty * self.tax.rate
 
@@ -460,10 +467,12 @@ class _Planner:
                 leg = Leg(ticker=h.instrument.ticker, account_id=h.account_id, bucket=b, side="sell",
                           lot_value=float(h.unit_value * lot), max_lots=n,
                           cost_rate=float(self.costs.rate(h.instrument.ticker)),
-                          tax_per_lot=float(self._tax(h.price, h.avg_price, h.account_kind, Decimal(lot))),
+                          tax_per_lot=float(self._tax(h.price, h.avg_price, h.account_kind, Decimal(lot),
+                                                      h.tax_lots)),
                           pref=BASE_PREF + (TAXED_PREF if taxed else 0.0) + RANK_PREF * rank,
                           issuer=h.instrument.issuer)
-                infos.append(_LegInfo(leg, h.instrument, h.price, h.accrued, h.avg_price, h.account_kind))
+                infos.append(_LegInfo(leg, h.instrument, h.price, h.accrued, h.avg_price, h.account_kind,
+                                      h.tax_lots))
                 proceeds_cap[h.account_id] += n * lot * h.unit_value
         held = {(h.account_id, h.instrument.ticker) for h in self.holdings}
         for b, amount in d.buys.items():
@@ -542,7 +551,8 @@ class _Planner:
             fee = round_money(amount * self._fee_rate(info.leg.ticker))
             tax = ZERO
             if info.leg.side == "sell":
-                tax = round_money(self._tax(info.price, info.avg_price, info.account_kind, Decimal(qty)))
+                tax = round_money(self._tax(info.price, info.avg_price, info.account_kind, Decimal(qty),
+                                            info.tax_lots))
             out.append(_Act(k, info, n, qty, amount, fee, tax))
         return out
 
@@ -728,11 +738,24 @@ class _Planner:
             violations = (*self.issues, *self.removed)
         else:
             notes.extend([*self.issues, *self.removed])
-        if any(a.info.account_kind in self.tax.taxed_kinds for a in sells):
-            if any(a.info.avg_price is not None for a in sells if a.info.account_kind in self.tax.taxed_kinds):
-                notes.append("налог ориентировочный, по средней цене; FIFO по операциям — следующий шаг")
-            if any(a.info.avg_price is None for a in sells if a.info.account_kind in self.tax.taxed_kinds):
-                notes.append("по части продаж себестоимость неизвестна — налог не оценён")
+        taxed_sells = [a for a in sells if a.info.account_kind in self.tax.taxed_kinds]
+        if any(a.info.tax_lots for a in taxed_sells):
+            notes.append("налог ориентировочный: по FIFO-лотам из операций с учётом ЛДВ (лимит ЛДВ не проверялся), "
+                         "не налоговая консультация")
+        if any(not a.info.tax_lots and a.info.avg_price is not None for a in taxed_sells):
+            notes.append("налог ориентировочный, по средней цене: лоты по операциям не загружены или не сошлись "
+                         "с портфелем")
+        if any(not a.info.tax_lots and a.info.avg_price is None for a in taxed_sells):
+            notes.append("по части продаж себестоимость неизвестна — налог не оценён")
+        for a in taxed_sells:
+            if not a.info.tax_lots:
+                continue
+            t = estimate_sale(a.info.tax_lots, Decimal(a.qty), a.info.price, self.inp.as_of, self.tax.rate)
+            if t.near_ldv_qty > 0 and t.days_to_ldv_min is not None:
+                notes.append(f"{a.info.leg.ticker}: часть продаваемых лотов получит ЛДВ через {t.days_to_ldv_min} дн. "
+                             "— если продажа не срочная, её можно отложить и не платить налог с этой части")
+            if t.unknown_cost_qty > 0:
+                notes.append(f"{a.info.leg.ticker}: у части лотов неизвестна себестоимость — налог занижен")
         if d is not None:
             before = len(self.notes)
             self._explain_rest(acts, after, d)

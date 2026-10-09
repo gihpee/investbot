@@ -21,6 +21,7 @@ from investbot.adapters.tinvest.ratelimit import ServiceLimits
 from investbot.calendar.models import CalendarEvent
 from investbot.core.models import Account, AccountKind, BrokerPortfolio, InstrumentMeta, UserInfo
 from investbot.news.models import RawNewsItem
+from investbot.portfolio.taxlots import TradeOp
 
 log = structlog.get_logger(__name__)
 
@@ -54,6 +55,9 @@ def _schemas() -> Any:
     from t_tech.invest.grpc import schemas
 
     return schemas
+
+
+MAX_OPERATION_PAGES = 50  # 50 × 1000 операций — с запасом для личного счёта
 
 
 class TInvestBroker:
@@ -143,6 +147,30 @@ class TInvestBroker:
                     meta[str(x.uid)] = fn(x)
             self._meta = meta
         return self._meta
+
+    async def trade_ops(self, account_id: str, since: datetime) -> list[TradeOp]:
+        """Сделки и переводы бумаг из GetOperationsByCursor (только исполненные) — для FIFO-лотов."""
+        s = self.s
+        client = self._client(account_id)
+        meta = await self.instrument_meta()
+        types = [t for name in mapper.TRADE_OP_KINDS if (t := getattr(s.OperationType, name, None)) is not None]
+        state = getattr(getattr(s, "OperationState", None), "OPERATION_STATE_EXECUTED", None)
+        out: list[TradeOp] = []
+        cursor = ""
+        for _ in range(MAX_OPERATION_PAGES):
+            await self._limits.take("operations")
+            kwargs: dict[str, Any] = {"account_id": account_id, "from_": since, "to": datetime.now(UTC),
+                                      "cursor": cursor, "limit": 1000, "operation_types": types}
+            if state is not None:
+                kwargs["state"] = state
+            r = await client.operations.get_operations_by_cursor(request=s.GetOperationsByCursorRequest(**kwargs))
+            for op in r.items:
+                if (t := mapper.map_trade_op(account_id, op, meta)) is not None:
+                    out.append(t)
+            if not r.has_next:
+                break
+            cursor = r.next_cursor
+        return out
 
     async def portfolio(self, account_id: str) -> BrokerPortfolio:
         acc = next((a for a in self._accounts if a.account_id == account_id), None)

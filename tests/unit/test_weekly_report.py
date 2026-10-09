@@ -143,3 +143,45 @@ async def test_unknown_account_hint(tmp_path: Path) -> None:
 ])
 def test_parse_amount(raw: str, expected: Decimal | None) -> None:
     assert parse_amount(raw) == expected
+
+
+class BrokerOnly(FakeBroker):
+    async def accounts(self) -> list[Account]:
+        return [Account(account_id="B", name="Брокерский", kind=AccountKind.BROKER, source=AccountSource.TINVEST)]
+
+
+def ops_for(qty_old: int, qty_new: int) -> object:
+    from investbot.portfolio.taxlots import TradeOp
+
+    async def trade_ops(account_id: str, since: datetime) -> list[TradeOp]:
+        return [
+            TradeOp(account_id="B", ticker="AAAA", kind="buy", at=datetime(2021, 3, 1, tzinfo=UTC),
+                    qty=D(qty_old), price=D(100)),
+            TradeOp(account_id="B", ticker="AAAA", kind="buy", at=datetime(2026, 3, 1, tzinfo=UTC),
+                    qty=D(qty_new), price=D(140)),
+        ]
+
+    return trade_ops
+
+
+async def test_fifo_lots_with_ldv_make_old_lot_tax_free(tmp_path: Path) -> None:
+    (tmp_path / "ips.yaml").write_text(IPS_YAML, encoding="utf-8")
+    portfolio = PortfolioService(BrokerOnly(), tmp_path / "manual.yaml", tmp_path / "ips.yaml")
+    svc = RebalanceService(portfolio, None, Journal(tmp_path / "j.jsonl"), CostModel(), TaxModel(),
+                           trade_ops=ops_for(300, 100))  # type: ignore[arg-type]
+    prep = await svc.weekly_plan(TODAY)
+    sell = next(a for a in prep.plan.actions if a.side == "sell" and a.ticker == "AAAA")
+    assert sell.qty <= 300 and sell.est_tax_rub == 0  # продаются лоты 2021 года: ЛДВ, налога нет
+    assert any("FIFO-лотам" in n for n in prep.plan.notes)
+    assert not prep.notes
+
+
+async def test_lot_mismatch_falls_back_to_average_with_note(tmp_path: Path) -> None:
+    (tmp_path / "ips.yaml").write_text(IPS_YAML, encoding="utf-8")
+    portfolio = PortfolioService(BrokerOnly(), tmp_path / "manual.yaml", tmp_path / "ips.yaml")
+    svc = RebalanceService(portfolio, None, Journal(tmp_path / "j.jsonl"), CostModel(), TaxModel(),
+                           trade_ops=ops_for(100, 100))  # type: ignore[arg-type]
+    prep = await svc.weekly_plan(TODAY)
+    assert any("лоты по операциям" in n for n in prep.notes)
+    sell = next(a for a in prep.plan.actions if a.side == "sell")
+    assert sell.est_tax_rub > 0  # по средней цене 100 при цене 150

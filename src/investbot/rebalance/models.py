@@ -14,6 +14,7 @@ from pydantic import Field
 
 from investbot.core.models import AccountKind, InstrumentMeta, Strict
 from investbot.core.money import ZERO
+from investbot.portfolio.taxlots import TaxLot
 
 
 class Holding(Strict):
@@ -28,6 +29,7 @@ class Holding(Strict):
     accrued: Decimal = ZERO
     avg_price: Decimal | None = None  # себестоимость за 1 шт.; None — налог не оценивается
     blocked_qty: Decimal = ZERO
+    tax_lots: tuple[TaxLot, ...] = ()  # FIFO-лоты по операциям (сверены с qty); пусто — налог по средней цене
 
     @property
     def unit_value(self) -> Decimal:

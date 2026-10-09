@@ -28,6 +28,7 @@ from investbot.core.money import ZERO, from_units_nano
 from investbot.news.models import RawNewsItem
 from investbot.news.text import canonical_url, clip, normalize_ws, strip_html
 from investbot.portfolio.buckets import RATING_ORDINAL, rating_ordinal
+from investbot.portfolio.taxlots import TradeOp
 
 _ACCOUNT_KINDS = {
     "ACCOUNT_TYPE_TINKOFF": AccountKind.BROKER,
@@ -440,4 +441,51 @@ def map_news_item(n: Any, now: datetime) -> RawNewsItem:
         instrument_tickers=_news_tickers(getattr(n, "instrument_id", None)),
         priority=_news_priority(getattr(n, "priority", None)),
         categories=(f"{NEWS_ORIGIN_PREFIX}{origin}",) if origin else (),
+    )
+
+
+# Типы операций, двигающие количество бумаг. Имена — по контрактам T-Invest; часть [проверить в Ф0]:
+# BUY_CARD/SELL_CARD (сделки с карты), INPUT/OUTPUT_SECURITIES (перевод бумаг), BOND_REPAYMENT_FULL (погашение).
+TRADE_OP_KINDS: dict[str, str] = {
+    "OPERATION_TYPE_BUY": "buy",
+    "OPERATION_TYPE_BUY_CARD": "buy",
+    "OPERATION_TYPE_BUY_MARGIN": "buy",
+    "OPERATION_TYPE_SELL": "sell",
+    "OPERATION_TYPE_SELL_CARD": "sell",
+    "OPERATION_TYPE_SELL_MARGIN": "sell",
+    "OPERATION_TYPE_BOND_REPAYMENT_FULL": "sell",
+    "OPERATION_TYPE_INPUT_SECURITIES": "transfer_in",
+    "OPERATION_TYPE_OUTPUT_SECURITIES": "transfer_out",
+}
+
+
+def _as_datetime(x: Any) -> datetime | None:
+    if isinstance(x, datetime):
+        return x if x.tzinfo else x.replace(tzinfo=UTC)
+    seconds = getattr(x, "seconds", None)
+    if seconds is not None:
+        return datetime.fromtimestamp(int(seconds), tz=UTC)
+    return None
+
+
+def map_trade_op(account_id: str, op: Any, meta_by_uid: dict[str, InstrumentMeta]) -> TradeOp | None:
+    """Операция GetOperationsByCursor → TradeOp; операции, не меняющие количество бумаг, — None."""
+    kind = TRADE_OP_KINDS.get(enum_name(op.type))
+    if kind is None:
+        return None
+    raw_qty = getattr(op, "quantity", 0)
+    qty = quotation(raw_qty) if hasattr(raw_qty, "units") else Decimal(int(raw_qty or 0))
+    at = _as_datetime(getattr(op, "date", None))
+    if qty <= 0 or at is None:
+        return None
+    uid = str(getattr(op, "instrument_uid", "") or "")
+    meta = meta_by_uid.get(uid)
+    ticker = meta.ticker if meta else str(getattr(op, "ticker", "") or getattr(op, "name", "") or uid)
+    price, cur = money(getattr(op, "price", None))
+    commission, _ = money(getattr(op, "commission", None))
+    return TradeOp(
+        account_id=account_id, ticker=ticker, instrument_uid=uid or None, kind=kind,
+        at=at, qty=qty,
+        price=price if price > 0 and cur == "rub" else None,  # валютные сделки: себестоимость в ₽ — [проверить]
+        commission=abs(commission),
     )

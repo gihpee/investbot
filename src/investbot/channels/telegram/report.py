@@ -122,7 +122,7 @@ def weekly_report_message(prep: PreparedPlan, privacy_mode: str = "weights", eve
     if events_html:
         lines.append("")
         lines.append(events_html)
-    notes = [*p.notes, *prep.overview.warnings]
+    notes = [*p.notes, *prep.notes, *prep.overview.warnings]
     if notes:
         lines.append("")
         lines.append("<b>Примечания</b>")

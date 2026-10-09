@@ -173,6 +173,7 @@ async def build_services(settings: Settings) -> AsyncIterator[Services]:
             journal=journal,
             costs=CostModel(broker_fee_rate=settings.broker_fee_rate),
             tax=TaxModel(rate=settings.tax_rate),
+            trade_ops=broker.trade_ops if broker is not None else None,
         )
         calendar = CalendarService(portfolio, broker, iss.bondization)
         engine = make_engine(settings.db_url())
