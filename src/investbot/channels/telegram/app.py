@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 from aiogram import Bot, Dispatcher, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -13,9 +15,14 @@ from investbot.channels.telegram.middlewares import OwnerOnlyMiddleware
 
 COMMANDS = [
     BotCommand(command="portfolio", description="Портфель и отклонения от целей"),
+    BotCommand(command="report", description="План ребалансировки сейчас"),
+    BotCommand(command="invest", description="Распределить пополнение: /invest 50000"),
+    BotCommand(command="calendar", description="Купоны, оферты, погашения, дивиденды"),
     BotCommand(command="allocation", description="Конструктор аллокации"),
     BotCommand(command="status", description="Состояние системы"),
 ]
+
+Startup = Callable[[Bot, Dispatcher], Awaitable[None]]
 
 
 def build_dispatcher(services: ServicesLike, owner_id: int | None, privacy_mode: str,
@@ -31,7 +38,8 @@ def build_dispatcher(services: ServicesLike, owner_id: int | None, privacy_mode:
 
 
 async def run_bot(token: str, services: ServicesLike, owner_id: int | None, privacy_mode: str,
-                  proxy: str | None = None, extra_routers: tuple[Router, ...] = ()) -> None:
+                  proxy: str | None = None, extra_routers: tuple[Router, ...] = (),
+                  on_startup: Startup | None = None) -> None:
     session = AiohttpSession(proxy=proxy) if proxy else None
     bot = Bot(token, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML,
                                                                    protect_content=True))
@@ -39,6 +47,8 @@ async def run_bot(token: str, services: ServicesLike, owner_id: int | None, priv
     if owner_id is not None:
         # команды видны только в чате владельца
         await bot.set_my_commands(COMMANDS, scope=BotCommandScopeChat(chat_id=owner_id))
+    if on_startup is not None:
+        await on_startup(bot, dp)
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:

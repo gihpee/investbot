@@ -1,4 +1,4 @@
-"""Реализация BrokerReadPort поверх официального SDK `t-tech-investments` (только чтение).
+"""Реализация BrokerReadPort и EventsPort поверх официального SDK `t-tech-investments` (только чтение).
 
 SDK импортируется лениво: остальной код и тесты работают без него. Установка SDK — README.
 """
@@ -8,6 +8,8 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from datetime import UTC, date, datetime, time
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,7 @@ import structlog
 from investbot.adapters.tinvest import mapper
 from investbot.adapters.tinvest.guard import ReadOnlyClientGuard, TradingAccessError, check_read_only
 from investbot.adapters.tinvest.ratelimit import ServiceLimits
+from investbot.calendar.models import CalendarEvent
 from investbot.core.models import Account, AccountKind, BrokerPortfolio, InstrumentMeta, UserInfo
 
 log = structlog.get_logger(__name__)
@@ -170,6 +173,83 @@ class TInvestBroker:
             total_dfa_rub=dfa or None,
             fx_rates=mapper.fx_from_portfolio(p.positions),
         )
+
+    # --- EventsPort: события по бумагам и последние цены (InstrumentsService, MarketDataService) -----------
+
+    async def _names(self, uid: str) -> tuple[str, str, date | None]:
+        meta = (await self.instrument_meta()).get(uid)
+        if meta is None:
+            return uid, "", None
+        return meta.ticker, meta.name, meta.maturity
+
+    async def bond_events(self, uid: str, frm: date, to: date) -> list[CalendarEvent]:
+        """GetBondEvents по типам CPN, CALL, MTY — отдельный запрос на тип (3 запроса на бумагу).
+
+        Возвращает ли запрос без `type` (EVENT_TYPE_UNSPECIFIED) все типы, отчёт 01 не подтверждает,
+        поэтому тип задаётся явно, как в примере SDK.
+        """
+        client = self._clients[0]
+        ticker, name, maturity = await self._names(uid)
+        event_types = self.s.GetBondEventsRequest.EventType
+        out: list[CalendarEvent] = []
+        for type_name in mapper.BOND_EVENT_TYPES:
+            await self._limits.take("instruments")
+            resp = await client.instruments.get_bond_events(
+                request=self.s.GetBondEventsRequest(
+                    instrument_id=uid, from_=_ts_from(frm), to=_ts_to(to), type=getattr(event_types, type_name)
+                )
+            )
+            for raw in resp.events or ():
+                event = mapper.map_bond_event(raw, ticker=ticker, name=name, type_hint=type_name, maturity=maturity)
+                if event is not None:
+                    out.append(event)
+        return out
+
+    async def dividends(self, uid: str, frm: date, to: date) -> list[CalendarEvent]:
+        """GetDividends: сервер фильтрует по `record_date`."""
+        client = self._clients[0]
+        ticker, name, _ = await self._names(uid)
+        await self._limits.take("instruments")
+        resp = await client.instruments.get_dividends(
+            request=self.s.GetDividendsRequest(instrument_id=uid, from_=_ts_from(frm), to=_ts_to(to))
+        )
+        out: list[CalendarEvent] = []
+        for raw in resp.dividends or ():
+            event = mapper.map_dividend(raw, ticker=ticker, name=name)
+            if event is not None:
+                out.append(event)
+        return out
+
+    async def last_prices(self, uids: list[str]) -> dict[str, Decimal]:
+        """GetLastPrices пакетами по `LAST_PRICES_BATCH` uid; цены облигаций переводятся из % номинала в валюту."""
+        unique = list(dict.fromkeys(uids))
+        if not unique:
+            return {}
+        client = self._clients[0]
+        meta = await self.instrument_meta()
+        # LastPriceType.LAST_PRICE_EXCHANGE — только биржевые цены; если в SDK нет перечисления, параметр
+        # не передаётся (сервер отдаёт цену по умолчанию)
+        price_type = getattr(getattr(self.s, "LastPriceType", None), "LAST_PRICE_EXCHANGE", None)
+        extra = {"last_price_type": price_type} if price_type is not None else {}
+        out: dict[str, Decimal] = {}
+        for i in range(0, len(unique), LAST_PRICES_BATCH):
+            await self._limits.take("market_data")
+            resp = await client.market_data.get_last_prices(
+                request=self.s.GetLastPricesRequest(instrument_id=unique[i : i + LAST_PRICES_BATCH], **extra)
+            )
+            out.update(mapper.map_last_prices(resp.last_prices, meta))
+        return out
+
+
+LAST_PRICES_BATCH = 100  # лимит числа инструментов в одном GetLastPrices не документирован — берём с запасом
+
+
+def _ts_from(d: date) -> datetime:
+    return datetime.combine(d, time.min, tzinfo=UTC)
+
+
+def _ts_to(d: date) -> datetime:
+    return datetime.combine(d, time(23, 59, 59), tzinfo=UTC)
 
 
 @asynccontextmanager

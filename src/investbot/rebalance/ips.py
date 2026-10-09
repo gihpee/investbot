@@ -74,6 +74,8 @@ class Rules(Strict):
     ig_min_rating: str = "A-"
     benefit_over_cost_min: Decimal = Decimal(2)  # выгода сделки должна в N раз превышать комиссию, спред и налог
     risk_penalty_rate: Decimal = Decimal("0.05")  # «цена» рубля не в своём бакете за год — для проверки выгоды
+    # cash_first: false (§10.2, п. 6): свободные деньги сюда автоматически не идут — только идеи или вручную
+    no_cash_first_buckets: tuple[str, ...] = ("dfa",)
 
 
 class IPS(Strict):

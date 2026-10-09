@@ -86,6 +86,9 @@ class PortfolioService:
 
     async def overview(self) -> PortfolioOverview:
         snap, fx = await self.snapshot()
+        return self.overview_from(snap, fx)
+
+    def overview_from(self, snap: PortfolioSnapshot, fx: dict[str, Decimal]) -> PortfolioOverview:
         ips = self.load_ips()
         valuation = value_portfolio(
             snap, fx,

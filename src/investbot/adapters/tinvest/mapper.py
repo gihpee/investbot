@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
+from investbot.calendar.models import CalendarEvent, EventKind, classify_offer
 from investbot.core.models import (
     AccessLevel,
     Account,
@@ -224,3 +225,129 @@ def fx_from_portfolio(positions: Any) -> dict[str, Decimal]:
         if price > 0 and price_cur == "rub" and code not in rates:
             rates[code] = price
     return rates
+
+
+# --- События по бумагам (GetBondEvents, GetDividends) и последние цены (GetLastPrices) ---------------------
+#
+# Поля BondEvent из docs/research/01-tinvest-api.md: event_date, pay_one_bond, value, coupon_interest_rate,
+# default_date, real_pay_date, execution, note. Не подтверждены отчётом и читаются через getattr с запасным
+# значением: event_type (тип события в ответе; запасной — тип из запроса), operation_type.
+
+BOND_EVENT_TYPES = ("EVENT_TYPE_CPN", "EVENT_TYPE_CALL", "EVENT_TYPE_MTY")  # EVENT_TYPE_CONV не показываем
+_AMORTIZATION_MARKERS = ("амортиз", "частичн", "amort", "partial")
+_FULL_NOMINAL = Decimal(100)
+
+
+def _fmt_date(d: date) -> str:
+    return d.strftime("%d.%m.%Y")
+
+
+def _fmt_pct(x: Decimal) -> str:
+    return f"{x.normalize():f}".replace(".", ",")
+
+
+def _event_text(e: Any) -> str:
+    """Свободный текст события: по нему отличаем put от call и амортизацию от погашения."""
+    parts = (getattr(e, name, None) for name in ("note", "operation_type", "execution"))
+    return " ".join(str(p) for p in parts if p)
+
+
+def map_bond_event(
+    e: Any, *, ticker: str, name: str, type_hint: str = "", maturity: date | None = None
+) -> CalendarEvent | None:
+    """BondEvent → CalendarEvent; None — тип не показывается в календаре (конвертация) или нет даты.
+
+    - EVENT_TYPE_CPN → купон, сумма — `pay_one_bond` (у флоатеров будущие купоны могут быть 0 → «не объявлен»).
+    - EVENT_TYPE_CALL → оферта. Отдельного поля «put/call» в отчёте нет: направление ищем в `note`/`operation_type`;
+      если не нашли — put (окно подачи пропустить дороже, чем лишний раз проверить условия) с пометкой.
+    - EVENT_TYPE_MTY → погашение; амортизация, если `value` (доля номинала, **[проверить]**) в (0, 100),
+      текст говорит о частичном погашении или дата раньше даты погашения выпуска.
+    """
+    raw_type = getattr(e, "event_type", None)
+    type_name = enum_name(raw_type) if raw_type is not None else ""
+    if not type_name or type_name.endswith("UNSPECIFIED") or type_name.isdigit():
+        type_name = type_hint
+    when = _as_date(getattr(e, "event_date", None))
+    if when is None:
+        return None
+    amount, currency = money(getattr(e, "pay_one_bond", None))
+    value = quotation(getattr(e, "value", None))
+    text = _event_text(e)
+    notes: list[str] = []
+
+    if type_name == "EVENT_TYPE_CPN":
+        kind = EventKind.COUPON
+        if amount <= 0:
+            notes.append("размер купона ещё не объявлен")
+    elif type_name == "EVENT_TYPE_CALL":
+        detected = classify_offer(text)
+        kind = detected or EventKind.PUT_OFFER
+        if detected is None:
+            notes.append("put или call — в API не указано, проверьте условия выпуска")
+        if value > 0:
+            notes.append(f"цена выкупа {_fmt_pct(value)}% номинала")
+    elif type_name == "EVENT_TYPE_MTY":
+        partial = (
+            ZERO < value < _FULL_NOMINAL
+            or any(m in text.lower() for m in _AMORTIZATION_MARKERS)
+            or (maturity is not None and when < maturity)
+        )
+        kind = EventKind.AMORTIZATION if partial else EventKind.MATURITY
+    else:
+        return None
+
+    pay_date = _as_date(getattr(e, "real_pay_date", None))
+    if pay_date is not None and pay_date != when and kind is not EventKind.PUT_OFFER:
+        notes.append(f"фактическая выплата {_fmt_date(pay_date)}")
+    default = _as_date(getattr(e, "default_date", None))
+    if default is not None:
+        notes.insert(0, f"дефолт по выплате ({_fmt_date(default)})")
+    return CalendarEvent(
+        date=when, kind=kind, ticker=ticker, name=name,
+        amount_per_unit=amount if amount > 0 else None, currency=currency,
+        source="tinvest", note="; ".join(notes),
+    )
+
+
+def map_dividend(d: Any, *, ticker: str, name: str) -> CalendarEvent | None:
+    """Dividend → CalendarEvent. Дата события — `record_date` (отсечка), иначе `last_buy_date`/`payment_date`.
+
+    `dividend_net` — по proto «величина дивиденда на 1 бумагу»; до или после НДФЛ — **[проверить]**,
+    поэтому в тексте налог не упоминается. `dividend_type` — строка («Regular Cash», «Cancelled», ...).
+    """
+    record = _as_date(getattr(d, "record_date", None))
+    last_buy = _as_date(getattr(d, "last_buy_date", None))
+    payment = _as_date(getattr(d, "payment_date", None))
+    when = record or last_buy or payment
+    if when is None:
+        return None
+    amount, currency = money(getattr(d, "dividend_net", None))
+    notes: list[str] = []
+    if "cancel" in str(getattr(d, "dividend_type", "") or "").lower():
+        notes.append("дивиденд отменён")
+    if payment is not None and payment != when:
+        notes.append(f"выплата {_fmt_date(payment)}")
+    return CalendarEvent(
+        date=when, kind=EventKind.DIVIDEND, ticker=ticker, name=name,
+        amount_per_unit=amount if amount > 0 else None, currency=currency,
+        last_buy_date=last_buy, source="tinvest", note="; ".join(notes),
+    )
+
+
+def map_last_prices(last_prices: Any, meta_by_uid: dict[str, InstrumentMeta]) -> dict[str, Decimal]:
+    """LastPrice[] → {instrument_uid: цена за 1 шт. в валюте}.
+
+    Цена облигаций в GetLastPrices — в пунктах (% номинала), переводится в валюту по текущему номиналу
+    из справочника. Нулевые цены (сделок не было) пропускаются.
+    """
+    out: dict[str, Decimal] = {}
+    for lp in last_prices or ():
+        uid = str(getattr(lp, "instrument_uid", "") or "")
+        price = quotation(getattr(lp, "price", None))
+        if not uid or price <= 0:
+            continue
+        meta = meta_by_uid.get(uid)
+        if meta is not None and meta.asset_class is AssetClass.BOND and meta.nominal:
+            price = price * meta.nominal / 100
+        out[uid] = price
+    return out

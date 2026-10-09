@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from datetime import date
 from pathlib import Path
 
 from investbot.ops.logging import setup_logging
@@ -54,19 +55,66 @@ def _portfolio(settings: Settings) -> int:
 
 
 def _bot(settings: Settings) -> int:
+    from aiogram import Bot, Dispatcher
+
+    from investbot.adapters.tinvest.guard import TradingAccessError
     from investbot.bootstrap import build_services
     from investbot.channels.telegram.allocation import build_allocation_router
     from investbot.channels.telegram.app import run_bot
+    from investbot.channels.telegram.calendar import build_calendar_router, calendar_block
+    from investbot.channels.telegram.report import ReportCenter, build_report_router
+    from investbot.jobs.scheduler import SingleInstanceLock, build_scheduler
 
     if settings.telegram_bot_token is None:
         print("Не задан INVESTBOT_TELEGRAM_BOT_TOKEN", file=sys.stderr)
         return 2
+    token = settings.telegram_bot_token.get_secret_value()
+    owner = settings.owner_telegram_id
 
     async def go() -> None:
-        async with build_services(settings) as services:
-            await run_bot(settings.telegram_bot_token.get_secret_value(), services,  # type: ignore[union-attr]
-                          settings.owner_telegram_id, settings.privacy_mode, settings.telegram_proxy,
-                          extra_routers=(build_allocation_router(services.allocation),))
+        lock = SingleInstanceLock(settings.data_dir / "scheduler.lock")
+        lock.acquire()
+        try:
+            async with build_services(settings) as services:
+                async def events_block(as_of: date) -> str | None:
+                    result = await services.calendar.upcoming(as_of, days=7)
+                    return calendar_block(result.events, as_of, days=7) or None
+
+                center = ReportCenter(services.rebalance, settings.privacy_mode,
+                                      settings.quantity_message_ttl_sec, events_block)
+
+                async def startup(bot: Bot, dp: Dispatcher) -> None:
+                    if owner is None:
+                        return  # режим первичной настройки: расписание включится после указания владельца
+
+                    async def weekly() -> None:
+                        await center.send_weekly(bot, owner)
+
+                    async def daily_check() -> None:
+                        if services.broker is None:
+                            return
+                        try:
+                            await services.broker.recheck_read_only()
+                        except TradingAccessError as e:
+                            await bot.send_message(owner, f"⛔ {e}\nБот остановлен. Выпустите токен «только чтение».")
+                            await dp.stop_polling()
+
+                    build_scheduler(settings.tz, {
+                        "weekly_report": (settings.weekly_report_cron, weekly),
+                        "daily_readonly_check": (settings.daily_check_cron, daily_check),
+                    }).start()
+
+                await run_bot(
+                    token, services, owner, settings.privacy_mode, settings.telegram_proxy,
+                    extra_routers=(
+                        build_allocation_router(services.allocation),
+                        build_report_router(center),
+                        build_calendar_router(services.calendar),
+                    ),
+                    on_startup=startup,
+                )
+        finally:
+            lock.release()
 
     asyncio.run(go())
     return 0

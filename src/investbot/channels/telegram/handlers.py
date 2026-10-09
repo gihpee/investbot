@@ -19,10 +19,11 @@ log = structlog.get_logger(__name__)
 BTN_PORTFOLIO = "📊 Портфель"
 BTN_ALLOCATION = "🎯 Аллокация"
 BTN_STATUS = "⚙️ Статус"
+BTN_CALENDAR = "🗓 Календарь"
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     keyboard=[[KeyboardButton(text=BTN_PORTFOLIO), KeyboardButton(text=BTN_ALLOCATION)],
-              [KeyboardButton(text=BTN_STATUS)]],
+              [KeyboardButton(text=BTN_CALENDAR), KeyboardButton(text=BTN_STATUS)]],
     resize_keyboard=True,
 )
 
@@ -31,7 +32,9 @@ WELCOME = (
     "• <b>Я не совершаю сделок</b>: токен Т-Инвестиций — только чтение, решения принимаете вы.\n"
     "• Показываю доли портфеля, отклонения от целевой аллокации и события по бумагам.\n"
     "• По умолчанию не пишу в Telegram рублёвые суммы и количества — только доли.\n\n"
-    "Команды: /portfolio — портфель, /allocation — конструктор аллокации, /status — состояние."
+    "Команды: /portfolio — портфель, /report — план ребалансировки, /invest 50000 — распределить пополнение, "
+    "/calendar — купоны и дивиденды, /allocation — конструктор аллокации, /status — состояние.\n"
+    "Недельный отчёт приходит сам по субботам в 10:00 МСК."
 )
 
 

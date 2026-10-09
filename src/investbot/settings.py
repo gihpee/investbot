@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -30,6 +31,15 @@ class Settings(BaseSettings):
     data_dir: Path = Path("data/local")
 
     privacy_mode: Literal["weights", "full"] = "weights"  # N4: в Telegram по умолчанию только доли
+    quantity_message_ttl_sec: int = 600  # сообщение с количествами удаляется через 10 минут
+
+    # Тариф и налоги (ориентиры; сверять со страницей тарифа брокера)
+    broker_fee_rate: Decimal = Decimal("0.003")
+    tax_rate: Decimal = Decimal("0.13")
+
+    # Расписание (Europe/Moscow): недельный отчёт и ежедневная проверка прав токена
+    weekly_report_cron: str = "0 10 * * sat"
+    daily_check_cron: str = "0 9 * * *"
 
     @field_validator("telegram_proxy")
     @classmethod

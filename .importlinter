@@ -22,6 +22,7 @@ name = Доменное ядро не импортирует адаптеры и
 type = forbidden
 source_modules =
     investbot.core
+    investbot.calendar
     investbot.portfolio
     investbot.rebalance
     investbot.allocation
