@@ -81,7 +81,7 @@ def test_profile_mapping_excludes_and_fixes() -> None:
 
 async def test_end_to_end_propose_edit_approve(tmp_path: Path) -> None:
     svc = service(tmp_path)
-    svc.save_answers(ProfileAnswers.from_codes(ANSWERS))
+    await svc.save_answers(ProfileAnswers.from_codes(ANSWERS))
     variants = await svc.propose(TODAY)
     assert [v.code for v in variants] == ["A", "B", "C"]
     for v in variants:
@@ -101,14 +101,14 @@ async def test_end_to_end_propose_edit_approve(tmp_path: Path) -> None:
     text, _ = draft_view(s, diff)
     assert "Черновик" in text and "п.п." in text
 
-    ips = svc.approve(diff.after, "C")
+    ips = await svc.approve(diff.after, "C")
     assert ips.version == 1
     loaded = load_ips(tmp_path / "ips.yaml")
     assert loaded.buckets["dfa"].cap is not None
 
-    kinds = [r["kind"] for r in Journal(tmp_path / "journal.jsonl").records()]
+    kinds = [r["kind"] for r in await Journal(tmp_path / "journal.jsonl").records()]
     assert kinds == ["profile_answers", "ips_proposal", "ips_edit", "ips_version"]
-    assert Journal(tmp_path / "journal.jsonl").verify_chain() == 4
+    assert await Journal(tmp_path / "journal.jsonl").verify_chain() == 4
 
 
 async def test_propose_without_answers_fails_clearly(tmp_path: Path) -> None:

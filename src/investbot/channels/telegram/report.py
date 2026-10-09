@@ -68,14 +68,38 @@ def _action_line(a: RebalanceAction, account_name: str, privacy_mode: str) -> st
     return f"{head}\n{detail}"
 
 
+def _partial_report(prep: PreparedPlan, scheduled: bool, events_html: str | None) -> str:
+    """L4: плана нет — отчёт с долями, событиями, новостями и статусом данных (§4.5)."""
+    ov = prep.overview
+    lines = ["<b>🗓 Недельный отчёт</b> · план отложен"]
+    lines.extend(escape(b) for b in prep.degradation.banners())
+    lines.append("")
+    lines.append("<b>Доли по классам сейчас</b>")
+    for d in ov.drift:
+        lines.append(f"• {escape(title(d.bucket))}: {pct(d.weight)}" +
+                     (f" (цель {pct(d.target, 0)})" if d.target is not None else ""))
+    if events_html:
+        lines.append("")
+        lines.append(events_html)
+    if not scheduled:
+        lines.append("")
+        lines.append("<i>Сформирован по запросу, вне расписания.</i>")
+    lines.append("")
+    lines.append(DISCLAIMER)
+    return "\n".join(lines)
+
+
 def weekly_report_message(prep: PreparedPlan, privacy_mode: str = "weights", events_html: str | None = None,
                           scheduled: bool = True) -> str:
+    if prep.plan is None:
+        return _partial_report(prep, scheduled, events_html)
     p: RebalancePlan = prep.plan
     lines = [f"<b>🗓 Недельный отчёт · {p.as_of:%d.%m.%Y}</b> · IPS v{p.ips_version}"]
     if not scheduled:
         lines.append("<i>Сформирован по запросу, вне расписания.</i>")
     snap = prep.overview.snapshot
     lines.append(f"Данные: снимок {snap.taken_at:%d.%m %H:%M} UTC · счетов {len(snap.accounts)}")
+    lines.extend(escape(b) for b in prep.degradation.banners())
     lines.append("")
     lines.append(f"<b>{VERDICT[p.verdict]}</b>")
     lines.append(f"Отклонение от целей: {pct(p.drift_before)} → {pct(p.drift_after)}")
@@ -133,8 +157,9 @@ def weekly_report_message(prep: PreparedPlan, privacy_mode: str = "weights", eve
     return text if len(text) <= 4000 else text[:3990] + "\n…"
 
 
-def actions_keyboard(plan_id: str, plan: RebalancePlan, decided: dict[int, Decision]) -> InlineKeyboardMarkup | None:
-    if not plan.actions:
+def actions_keyboard(plan_id: str, plan: RebalancePlan | None,
+                     decided: dict[int, Decision]) -> InlineKeyboardMarkup | None:
+    if plan is None or not plan.actions:
         return None
     rows: list[list[InlineKeyboardButton]] = []
     for a in plan.actions:
@@ -156,7 +181,7 @@ def actions_keyboard(plan_id: str, plan: RebalancePlan, decided: dict[int, Decis
 
 def quantities_message(prep: PreparedPlan) -> str:
     lines = ["<b>🔐 Количества и суммы</b> (сообщение удалится автоматически)"]
-    for a in prep.plan.actions:
+    for a in (prep.plan.actions if prep.plan else ()):
         side = "Продать" if a.side == "sell" else "Купить"
         lines.append(f"{a.seq}. {side} {escape(a.ticker)}: {a.lots} лот(ов) = {a.qty} шт., ≈{rub(a.est_amount_rub)}, "
                      f"комиссия ≈{rub(a.est_fee_rub)}" + (f", налог ≈{rub(a.est_tax_rub)}" if a.est_tax_rub else ""))
@@ -165,9 +190,13 @@ def quantities_message(prep: PreparedPlan) -> str:
 
 
 def invest_message(prep: PreparedPlan, amount: Decimal, privacy_mode: str) -> str:
-    p = prep.plan
     head = f"<b>💰 Распределение пополнения</b> {rub(amount) if privacy_mode == 'full' else ''}".rstrip()
-    lines = [head, ""]
+    lines = [head, *(escape(b) for b in prep.degradation.banners()), ""]
+    p = prep.plan
+    if p is None:
+        lines.append("Распределение сейчас не строится — см. причину выше.")
+        lines.append(DISCLAIMER)
+        return "\n".join(lines)
     if not p.actions:
         lines.append("Покупок не получилось — см. примечания.")
     for a in p.actions:
@@ -184,7 +213,7 @@ class RebalanceServiceLike(Protocol):
 
     async def invest(self, amount: Decimal, account_hint: str | None, as_of: date) -> PreparedPlan: ...
 
-    def record_decision(self, plan_id: str, seq: int | None, decision: Decision) -> None: ...
+    async def record_decision(self, plan_id: str, seq: int | None, decision: Decision) -> None: ...
 
 
 class ReportCenter:
@@ -198,6 +227,7 @@ class ReportCenter:
         self.events_block = events_block
         self.today = today
         self.plans: dict[str, PreparedPlan] = {}
+        self.retry_after_sec = 3 * 3600
         self.decided: dict[str, dict[int, Decision]] = {}
 
     async def _events(self, as_of: date) -> str | None:
@@ -212,7 +242,7 @@ class ReportCenter:
             log.exception("report.events_failed")
             return None
 
-    async def send_weekly(self, bot: Bot, chat_id: int, scheduled: bool = True) -> None:
+    async def send_weekly(self, bot: Bot, chat_id: int, scheduled: bool = True, retry: bool = True) -> None:
         try:
             prep = await self.service.weekly_plan(self.today())
         except LookupError as e:
@@ -220,9 +250,16 @@ class ReportCenter:
             return
         self.plans[prep.plan_id] = prep
         self.decided[prep.plan_id] = {}
-        events = await self._events(prep.plan.as_of)
+        events = await self._events(prep.plan.as_of if prep.plan else self.today())
         await bot.send_message(chat_id, weekly_report_message(prep, self.privacy_mode, events, scheduled),
                                reply_markup=actions_keyboard(prep.plan_id, prep.plan, {}))
+        if prep.plan is None and scheduled and retry:
+            # L4: повтор через 3 часа (один раз), §4.5
+            async def later() -> None:
+                await asyncio.sleep(self.retry_after_sec)
+                await self.send_weekly(bot, chat_id, scheduled=True, retry=False)
+
+            asyncio.get_running_loop().create_task(later())
 
     async def send_quantities(self, bot: Bot, chat_id: int, plan_id: str) -> None:
         prep = self.plans.get(plan_id)
@@ -302,14 +339,14 @@ def build_report_router(center: ReportCenter) -> Router:
         decision = parts[3]
         decided = center.decided.setdefault(plan_id, {})
         if parts[2] == "all":
-            for a in prep.plan.actions:
+            for a in prep.plan.actions if prep.plan else ():
                 if a.seq not in decided:
                     decided[a.seq] = decision
-            center.service.record_decision(plan_id, None, decision)
+            await center.service.record_decision(plan_id, None, decision)
         else:
             seq = int(parts[2])
             decided[seq] = decision
-            center.service.record_decision(plan_id, seq, decision)
+            await center.service.record_decision(plan_id, seq, decision)
         await cb.answer(f"Записано: {DECISION_TEXT[decision]}. Сделку совершаете вы в приложении брокера.")
         if isinstance(cb.message, Message):
             with contextlib.suppress(Exception):

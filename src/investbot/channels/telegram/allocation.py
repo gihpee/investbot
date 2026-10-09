@@ -33,13 +33,13 @@ BTN_ALLOCATION = "🎯 Аллокация"
 class AllocationServiceLike(Protocol):
     def answers(self) -> ProfileAnswers | None: ...
 
-    def save_answers(self, answers: ProfileAnswers) -> None: ...
+    async def save_answers(self, answers: ProfileAnswers) -> None: ...
 
     async def propose(self, today: date) -> list[AllocationVariant]: ...
 
     async def edit(self, weights: Mapping[str, Decimal], edit: AllocationEdit, today: date) -> DraftDiff: ...
 
-    def approve(self, weights: Mapping[str, Decimal], source_variant: str | None) -> IPS: ...
+    async def approve(self, weights: Mapping[str, Decimal], source_variant: str | None) -> IPS: ...
 
 
 @dataclass
@@ -181,7 +181,7 @@ def build_allocation_router(service: AllocationServiceLike, today: date | None =
             text, markup = question_view(i + 1)
             await cb.message.edit_text(text, reply_markup=markup)
             return
-        service.save_answers(ProfileAnswers.from_codes(s.codes))
+        await service.save_answers(ProfileAnswers.from_codes(s.codes))
         await cb.message.edit_text("Анкета сохранена ✅")
         await show_variants(cb.message)
 
@@ -279,7 +279,7 @@ def build_allocation_router(service: AllocationServiceLike, today: date | None =
         await cb.answer()
         if s.draft is None or not isinstance(cb.message, Message):
             return
-        ips = service.approve(s.draft, s.source)
+        ips = await service.approve(s.draft, s.source)
         await cb.message.edit_text(
             f"✅ Целевая аллокация утверждена (IPS версия {ips.version}).\n"
             "Теперь /portfolio показывает отклонения от неё, а недельный отчёт будет предлагать ребалансировку.\n"

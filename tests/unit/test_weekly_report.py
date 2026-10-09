@@ -108,7 +108,7 @@ async def test_weekly_plan_is_preregistered_and_rendered(tmp_path: Path) -> None
     assert any(a.side == "sell" and a.ticker == "AAAA" for a in plan.actions)
     first_sell = next(a for a in plan.actions if a.side == "sell")
     assert first_sell.account_id == "I"  # сначала ИИС: продажа без текущего налога
-    assert [r["kind"] for r in journal.records()] == ["rebalance_plan"]
+    assert [r["kind"] for r in await journal.records()] == ["rebalance_plan"]
 
     text = weekly_report_message(prep, "weights", events_html="<b>События</b>")
     assert "Нужна ребалансировка" in text and "AAAA" in text and "События" in text
@@ -119,9 +119,9 @@ async def test_weekly_plan_is_preregistered_and_rendered(tmp_path: Path) -> None
     assert kb is not None
     assert any("принято" in b.text for row in kb.inline_keyboard for b in row)
 
-    svc.record_decision(prep.plan_id, first_sell.seq, "accept")
-    assert [r["kind"] for r in journal.records()] == ["rebalance_plan", "decision"]
-    assert journal.verify_chain() == 2
+    await svc.record_decision(prep.plan_id, first_sell.seq, "accept")
+    assert [r["kind"] for r in await journal.records()] == ["rebalance_plan", "decision"]
+    assert await journal.verify_chain() == 2
 
 
 async def test_invest_without_sells(tmp_path: Path) -> None:

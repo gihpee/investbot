@@ -133,6 +133,8 @@ class PortfolioSnapshot(Strict):
     positions: tuple[Position, ...]
     cash: tuple[CashBalance, ...]
     warnings: tuple[str, ...] = ()
+    flags: tuple[str, ...] = ()  # флаги деградации (ops/degradation.py): broker_stale, broker_too_old
+    broker_as_of: datetime | None = None  # момент брокерского снимка, если он взят из кэша
 
 
 class Fact(Strict):

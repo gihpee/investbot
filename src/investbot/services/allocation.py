@@ -25,7 +25,7 @@ from investbot.allocation.models import (
 )
 from investbot.allocation.proposer import propose
 from investbot.core.money import pct
-from investbot.journal.store import Journal
+from investbot.journal.store import JournalLike
 from investbot.rebalance.ips import IPS
 from investbot.rebalance.ips_builder import build_ips, save_ips
 from investbot.services.portfolio import PortfolioService
@@ -86,7 +86,7 @@ def to_risk_profile(a: ProfileAnswers, cfg: AllocationConfig) -> RiskProfile:
 
 class AllocationService:
     def __init__(self, portfolio: PortfolioService, proxies: ProxyStore, config_path: Path, answers_path: Path,
-                 ips_path: Path, journal: Journal) -> None:
+                 ips_path: Path, journal: JournalLike) -> None:
         self._portfolio = portfolio
         self._proxies = proxies
         self._config_path = config_path
@@ -101,9 +101,9 @@ class AllocationService:
     def answers(self) -> ProfileAnswers | None:
         return load_answers(self._answers_path)
 
-    def save_answers(self, answers: ProfileAnswers) -> None:
+    async def save_answers(self, answers: ProfileAnswers) -> None:
         save_answers(answers, self._answers_path)
-        self._journal.append("profile_answers", answers.model_dump(), author="user")
+        await self._journal.append("profile_answers", answers.model_dump(), author="user")
 
     def profile(self) -> RiskProfile:
         answers = self.answers()
@@ -151,7 +151,7 @@ class AllocationService:
             else v
             for v in variants
         ]
-        self._journal.append("ips_proposal", {
+        await self._journal.append("ips_proposal", {
             "as_of": today.isoformat(), "config_version": cfg.version, "current": current,
             "variants": {v.code: v.weights for v in variants},
         })
@@ -164,15 +164,15 @@ class AllocationService:
         diff = apply_edit(dict(weights), edit, profile, data, cfg.scenarios)
         if w := drawdown_warning(diff.metrics_after, profile):
             diff = diff.model_copy(update={"violations": (*diff.violations, w)})
-        self._journal.append("ips_edit", {"edit": edit.model_dump(), "after": diff.after,
+        await self._journal.append("ips_edit", {"edit": edit.model_dump(), "after": diff.after,
                                           "violations": list(diff.violations)}, author="user")
         return diff
 
-    def approve(self, weights: Mapping[str, Decimal], source_variant: str | None) -> IPS:
+    async def approve(self, weights: Mapping[str, Decimal], source_variant: str | None) -> IPS:
         """Вызывается только по кнопке пользователя «Утвердить»."""
         previous = self._portfolio.load_ips()
         ips = build_ips({b: w for b, w in weights.items() if w > 0 or b in ("corp_hy", "fx_cash")}, previous)
         save_ips(ips, self._ips_path)
-        self._journal.append("ips_version", {"version": ips.version, "source_variant": source_variant,
+        await self._journal.append("ips_version", {"version": ips.version, "source_variant": source_variant,
                                              "weights": dict(weights)}, author="user")
         return ips

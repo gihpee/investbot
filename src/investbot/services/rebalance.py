@@ -14,7 +14,9 @@ import structlog
 
 from investbot.core.models import AccountKind, AssetClass, PortfolioSnapshot, Strict
 from investbot.core.money import ZERO
-from investbot.journal.store import Journal
+from investbot.data.quality import gate_fresh, gate_portfolio
+from investbot.journal.store import JournalLike
+from investbot.ops.degradation import Degradation, GateResult, combine
 from investbot.portfolio.buckets import classify
 from investbot.portfolio.taxlots import TaxLot, TradeOp, build_lots, reconcile
 from investbot.rebalance.ips import IPS
@@ -34,12 +36,16 @@ Decision = str  # "accept" | "postpone" | "skip"
 DECISIONS = ("accept", "postpone", "skip")
 
 
+GatesProvider = Callable[[], Awaitable[list[GateResult]]]  # внешние гейты (G-news и т. п.)
+
+
 class PreparedPlan(Strict):
     plan_id: str  # первые 12 символов хэша записи журнала
     overview: PortfolioOverview
-    plan: RebalancePlan
+    plan: RebalancePlan | None  # None — план отложен (L4): уходит частичный отчёт
     account_names: dict[str, str]
     notes: tuple[str, ...] = ()  # примечания сервиса (сверка лотов и т. п.), показываются в отчёте
+    degradation: Degradation = Degradation()
 
 
 def build_plan_input(
@@ -102,9 +108,11 @@ def resolve_account(snap: PortfolioSnapshot, hint: str | None) -> str | None:
 
 
 class RebalanceService:
-    def __init__(self, portfolio: PortfolioService, quotes: QuoteProvider | None, journal: Journal,
-                 costs: CostModel, tax: TaxModel, trade_ops: TradeOpsProvider | None = None) -> None:
+    def __init__(self, portfolio: PortfolioService, quotes: QuoteProvider | None, journal: JournalLike,
+                 costs: CostModel, tax: TaxModel, trade_ops: TradeOpsProvider | None = None,
+                 extra_gates: GatesProvider | None = None) -> None:
         self._portfolio = portfolio
+        self._extra_gates = extra_gates
         self._quotes = quotes
         self._trade_ops = trade_ops
         self._journal = journal
@@ -156,16 +164,31 @@ class RebalanceService:
         ips = overview.ips
         if ips is None:
             raise LookupError("целевая аллокация не утверждена — сначала /allocation")
-        quotes = await self._carrier_quotes(ips)
         lots, lot_notes = await self._tax_lots(snap) if allow_sells else ({}, [])
-        inp = build_plan_input(snap, fx, ips, as_of, quotes, cash_in, cash_in_account, allow_sells, lots)
-        costs, tax = self._costs, self._tax
-        plan = plan_invest(inp, ips, costs, tax) if kind == "invest" else plan_rebalance(inp, ips, costs, tax)
-        record = self._journal.append(kind, {"plan": plan.model_dump(mode="json"), "ips_version": ips.version})
+        hint = {p.instrument.ticker: p.qty * p.avg_price for p in snap.positions
+                if p.price is None and p.avg_price is not None}
+        gates = [gate_fresh(overview.valuation, hint), gate_portfolio(lot_notes)]
+        if self._extra_gates is not None:
+            try:
+                gates.extend(await self._extra_gates())
+            except Exception as e:
+                log.warning("rebalance.gates_failed", error=type(e).__name__)
+        deg = combine(snap.flags, gates, snap.broker_as_of)
+        plan: RebalancePlan | None = None
+        if deg.trade_list_allowed:
+            quotes = await self._carrier_quotes(ips)
+            inp = build_plan_input(snap, fx, ips, as_of, quotes, cash_in, cash_in_account,
+                                   allow_sells and deg.allow_sells, lots)
+            costs, tax = self._costs, self._tax
+            plan = plan_invest(inp, ips, costs, tax) if kind == "invest" else plan_rebalance(inp, ips, costs, tax)
+        record = await self._journal.append(kind, {
+            "plan": plan.model_dump(mode="json") if plan else None, "ips_version": ips.version,
+            "degradation": {"flags": list(deg.flags), "gates": [g.model_dump() for g in deg.gates if not g.ok]},
+        })
         return PreparedPlan(
             plan_id=record["hash"][:12], overview=overview, plan=plan,
             account_names={a.account_id: a.name for a in snap.accounts},
-            notes=tuple(lot_notes),
+            notes=tuple(lot_notes), degradation=deg,
         )
 
     async def weekly_plan(self, as_of: date) -> PreparedPlan:
@@ -175,7 +198,7 @@ class RebalanceService:
         """Пополнение: account_hint — id или часть названия счёта («иис»); по умолчанию — счёт с наибольшим кэшем."""
         return await self._prepare(as_of, amount, account_hint, False, "invest")
 
-    def record_decision(self, plan_id: str, seq: int | None, decision: Decision) -> None:
+    async def record_decision(self, plan_id: str, seq: int | None, decision: Decision) -> None:
         if decision not in DECISIONS:
             raise ValueError(f"неизвестное решение: {decision}")
-        self._journal.append("decision", {"plan_id": plan_id, "seq": seq, "decision": decision}, author="user")
+        await self._journal.append("decision", {"plan_id": plan_id, "seq": seq, "decision": decision}, author="user")

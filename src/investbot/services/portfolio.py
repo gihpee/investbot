@@ -5,16 +5,18 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import json
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 import structlog
 
-from investbot.core.models import Account, CashBalance, PortfolioSnapshot, Position, Strict
+from investbot.core.models import Account, BrokerPortfolio, CashBalance, PortfolioSnapshot, Position, Strict
 from investbot.core.money import ZERO
 from investbot.core.ports import BrokerReadPort
-from investbot.portfolio.manual import load_manual, validate_against_broker
+from investbot.portfolio.manual import validate_against_broker
+from investbot.portfolio.manual_store import ManualStore, YamlManualStore
 from investbot.portfolio.valuation import PortfolioValuation, value_portfolio
 from investbot.rebalance.drift import BucketDrift, compute_drift
 from investbot.rebalance.ips import IPS, load_ips
@@ -22,6 +24,31 @@ from investbot.rebalance.ips import IPS, load_ips
 log = structlog.get_logger(__name__)
 
 DFA_RECON_TOLERANCE = Decimal("0.01")
+BROKER_STALE_MAX = timedelta(days=7)
+
+
+class BrokerSnapshotCache:
+    """Последний успешный брокерский снимок (L3, §4.5): при недоступности Т-Инвестиций план строится по нему."""
+
+    def __init__(self, directory: Path) -> None:
+        self.dir = directory
+
+    def save(self, taken_at: datetime, accounts: list[Account], portfolios: list[BrokerPortfolio]) -> None:
+        self.dir.mkdir(parents=True, exist_ok=True)
+        data = {"taken_at": taken_at.isoformat(), "accounts": [a.model_dump(mode="json") for a in accounts],
+                "portfolios": [p.model_dump(mode="json") for p in portfolios]}
+        tmp = self.dir / "broker_snapshot.tmp"
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(self.dir / "broker_snapshot.json")
+
+    def load(self) -> tuple[datetime, list[Account], list[BrokerPortfolio]] | None:
+        path = self.dir / "broker_snapshot.json"
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return (datetime.fromisoformat(data["taken_at"]),
+                [Account.model_validate(a) for a in data["accounts"]],
+                [BrokerPortfolio.model_validate(p) for p in data["portfolios"]])
 
 
 class PortfolioOverview(Strict):
@@ -33,9 +60,11 @@ class PortfolioOverview(Strict):
 
 
 class PortfolioService:
-    def __init__(self, broker: BrokerReadPort | None, manual_path: Path, ips_path: Path) -> None:
+    def __init__(self, broker: BrokerReadPort | None, manual: ManualStore | Path, ips_path: Path,
+                 cache: BrokerSnapshotCache | None = None) -> None:
         self._broker = broker
-        self._manual_path = manual_path
+        self._cache = cache
+        self.manual: ManualStore = YamlManualStore(manual) if isinstance(manual, Path) else manual
         self._ips_path = ips_path
 
     def load_ips(self) -> IPS | None:
@@ -49,9 +78,24 @@ class PortfolioService:
         fx: dict[str, Decimal] = {"rub": Decimal(1)}
         dfa_totals: dict[str, Decimal] = {}
 
+        flags: list[str] = []
+        broker_as_of: datetime | None = None
         if self._broker is not None:
-            for acc in await self._broker.accounts():
-                bp = await self._broker.portfolio(acc.account_id)
+            try:
+                broker_accounts = await self._broker.accounts()
+                portfolios = [await self._broker.portfolio(a.account_id) for a in broker_accounts]
+                if self._cache is not None:
+                    self._cache.save(datetime.now(UTC), broker_accounts, portfolios)
+            except Exception as e:
+                cached = self._cache.load() if self._cache is not None else None
+                if cached is None:
+                    raise
+                broker_as_of, broker_accounts, portfolios = cached
+                age = datetime.now(UTC) - broker_as_of
+                flags.append("broker_too_old" if age > BROKER_STALE_MAX else "broker_stale")
+                log.warning("portfolio.broker_unavailable", error=type(e).__name__,
+                            cache_age_h=int(age.total_seconds() // 3600))
+            for acc, bp in zip(broker_accounts, portfolios, strict=True):
                 accounts.append(acc)
                 positions.extend(bp.positions)
                 cash.extend(bp.cash)
@@ -60,7 +104,7 @@ class PortfolioService:
                 if bp.total_dfa_rub:
                     dfa_totals[acc.account_id] = bp.total_dfa_rub
 
-        manual = load_manual(self._manual_path)
+        manual = await self.manual.load()
         validate_against_broker(manual, {a.account_id for a in accounts})
         accounts.extend(manual.domain_accounts())
         positions.extend(manual.positions())
@@ -81,6 +125,8 @@ class PortfolioService:
             positions=tuple(positions),
             cash=tuple(cash),
             warnings=tuple(warnings),
+            flags=tuple(flags),
+            broker_as_of=broker_as_of,
         )
         return snap, fx
 

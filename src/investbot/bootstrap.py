@@ -15,15 +15,16 @@ from investbot.adapters.tinvest.broker import TInvestBroker, open_broker
 from investbot.core.models import AssetClass, InstrumentMeta
 from investbot.data.db import make_engine
 from investbot.data.news_repo import NewsRepo
+from investbot.data.quality import gate_news
 from investbot.journal.store import Journal
 from investbot.news.linking import AliasIndex, load_aliases
 from investbot.news.sources import load_sources
-from investbot.portfolio.manual import load_manual
+from investbot.ops.degradation import GateResult
 from investbot.rebalance.models import CostModel, Quote, TaxModel
 from investbot.services.allocation import AllocationService
 from investbot.services.calendar import CalendarService
 from investbot.services.news import AliasProvider, NewsService
-from investbot.services.portfolio import PortfolioService
+from investbot.services.portfolio import BrokerSnapshotCache, PortfolioService
 from investbot.services.proxies import ProxyStore
 from investbot.services.rebalance import QuoteProvider, RebalanceService
 from investbot.services.status import SystemStatus
@@ -123,7 +124,7 @@ class Services:
             ips = None
             problems.append(f"IPS не прочитан: {e}")
         try:
-            manual = len(load_manual(self.settings.manual_portfolio_path).accounts)
+            manual = len((await self.portfolio.manual.load()).accounts)
         except ValueError as e:
             manual = 0
             problems.append(f"ручной портфель не прочитан: {e}")
@@ -158,7 +159,8 @@ async def build_services(settings: Settings) -> AsyncIterator[Services]:
             IssClient(verify=str(settings.ca_bundle) if settings.ca_bundle else True)
         )
         journal = Journal(settings.data_dir / "journal.jsonl")
-        portfolio = PortfolioService(broker, settings.manual_portfolio_path, settings.ips_path)
+        portfolio = PortfolioService(broker, settings.manual_portfolio_path, settings.ips_path,
+                                     cache=BrokerSnapshotCache(settings.data_dir / "snapshots"))
         allocation = AllocationService(
             portfolio=portfolio,
             proxies=ProxyStore(settings.data_dir / "proxies", iss.index_closes),
@@ -167,6 +169,15 @@ async def build_services(settings: Settings) -> AsyncIterator[Services]:
             ips_path=settings.ips_path,
             journal=journal,
         )
+        news_holder: list[NewsService] = []
+
+        async def extra_gates() -> list[GateResult]:
+            if not news_holder:
+                return []
+            sources = load_sources(settings.config_dir / "sources.yaml")
+            p0 = [x.key for x in sources if x.enabled and x.priority == "P0"]
+            return [gate_news([h for h, _ in await news_holder[0].health()], p0, datetime.now(UTC))]
+
         rebalance = RebalanceService(
             portfolio=portfolio,
             quotes=broker_quote_provider(broker) if broker is not None else None,
@@ -174,6 +185,7 @@ async def build_services(settings: Settings) -> AsyncIterator[Services]:
             costs=CostModel(broker_fee_rate=settings.broker_fee_rate),
             tax=TaxModel(rate=settings.tax_rate),
             trade_ops=broker.trade_ops if broker is not None else None,
+            extra_gates=extra_gates,
         )
         calendar = CalendarService(portfolio, broker, iss.bondization)
         engine = make_engine(settings.db_url())
@@ -188,5 +200,6 @@ async def build_services(settings: Settings) -> AsyncIterator[Services]:
             tinvest_news=broker.news_page if broker is not None else None,
             aliases=alias_provider(settings, portfolio, broker),
         )
+        news_holder.append(news)
         yield Services(settings=settings, portfolio=portfolio, allocation=allocation, rebalance=rebalance,
                        calendar=calendar, news=news, broker=broker)
