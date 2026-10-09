@@ -37,6 +37,7 @@ def build_ips(weights: Mapping[str, Decimal], previous: IPS | None) -> IPS:
         version=(previous.version + 1) if previous else 1,
         buckets=buckets,
         instrument_buckets=previous.instrument_buckets if previous else {},
+        carriers=previous.carriers if previous else {},
         limits=previous.limits if previous else IPS.model_fields["limits"].default,
         rules=previous.rules if previous else IPS.model_fields["rules"].default,
     )

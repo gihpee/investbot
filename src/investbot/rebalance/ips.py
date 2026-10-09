@@ -72,6 +72,8 @@ class Rules(Strict):
     return_to_band_fraction: Decimal = Decimal("0.875")
     cashflow_first: bool = True
     ig_min_rating: str = "A-"
+    benefit_over_cost_min: Decimal = Decimal(2)  # выгода сделки должна в N раз превышать комиссию, спред и налог
+    risk_penalty_rate: Decimal = Decimal("0.05")  # «цена» рубля не в своём бакете за год — для проверки выгоды
 
 
 class IPS(Strict):
@@ -79,6 +81,9 @@ class IPS(Strict):
     buckets: dict[str, BucketTarget]
     instrument_buckets: dict[str, str] = Field(
         default_factory=dict, description="ручное отнесение тикера к бакету, перекрывает классификатор"
+    )
+    carriers: dict[str, str] = Field(
+        default_factory=dict, description="бакет → тикер носителя по умолчанию (например, индексного фонда класса)"
     )
     limits: Limits = Limits()
     rules: Rules = Rules()
@@ -97,6 +102,9 @@ class IPS(Strict):
         bad = {t: b for t, b in self.instrument_buckets.items() if b not in KNOWN_BUCKETS}
         if bad:
             raise ValueError(f"instrument_buckets ссылается на неизвестные бакеты: {bad}")
+        bad_carriers = set(self.carriers) - set(KNOWN_BUCKETS)
+        if bad_carriers:
+            raise ValueError(f"carriers: неизвестные бакеты {sorted(bad_carriers)}")
         return self
 
 

@@ -114,12 +114,23 @@ def _coupon_kind(b: Any) -> CouponKind:
     return CouponKind.FIXED
 
 
+def _trading_flags(x: Any) -> dict[str, Any]:
+    inc = getattr(x, "min_price_increment", None)
+    return {
+        "for_qual_only": bool(getattr(x, "for_qual_investor_flag", False)),
+        "buy_available": bool(getattr(x, "buy_available_flag", True)),
+        "sell_available": bool(getattr(x, "sell_available_flag", True)),
+        "for_iis": bool(getattr(x, "for_iis_flag", True)),
+        "min_price_increment": quotation(inc) if inc is not None else None,
+    }
+
+
 def map_share(s: Any) -> InstrumentMeta:
     return InstrumentMeta(
         ticker=str(s.ticker), name=str(s.name), asset_class=AssetClass.EQUITY,
         currency=str(s.currency).lower(), isin=s.isin or None, tinvest_uid=str(s.uid),
-        class_code=str(s.class_code), lot=int(s.lot or 1),
-        for_qual_only=bool(getattr(s, "for_qual_investor_flag", False)),
+        class_code=str(s.class_code), lot=int(s.lot or 1), issuer=getattr(s, "asset_uid", None) or None,
+        **_trading_flags(s),
     )
 
 
@@ -134,7 +145,7 @@ def map_bond(b: Any) -> InstrumentMeta:
         is_government=sector == "government" or ticker.startswith("SU"),
         coupon_kind=_coupon_kind(b), rating=_min_rating(getattr(b, "ratings", None)),
         nominal=nominal or None, maturity=_as_date(getattr(b, "maturity_date", None)),
-        for_qual_only=bool(getattr(b, "for_qual_investor_flag", False)),
+        **_trading_flags(b),
     )
 
 
@@ -145,7 +156,7 @@ def map_etf(e: Any) -> InstrumentMeta:
         currency=str(e.currency).lower(), isin=e.isin or None, tinvest_uid=str(e.uid),
         class_code=str(e.class_code), lot=int(e.lot or 1),
         fund_focus=_FUND_FOCUS.get(focus, FundFocus.OTHER),
-        for_qual_only=bool(getattr(e, "for_qual_investor_flag", False)),
+        **_trading_flags(e),
     )
 
 

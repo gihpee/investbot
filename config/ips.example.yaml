@@ -13,6 +13,7 @@ buckets:            # target и полосы: band_abs (п.п.) и band_rel (д�
   dfa:              {target: 0.04, cap: 0.07}
   fx_cash:          {target: 0.00, cap: 0.05}
 instrument_buckets: {}   # ручное отнесение фондов и бумаг к бакетам, например {SOMEFUND: corp_ig}
+carriers: {}             # носитель по умолчанию для покупок в бакет, если в нём нет ваших бумаг: {equity_ru: FUNDTICKER}
 limits:
   max_issuer_total: 0.10
   max_sector: 0.25
@@ -23,3 +24,5 @@ rules:
   return_to_band_fraction: 0.875
   cashflow_first: true
   ig_min_rating: "A-"
+  benefit_over_cost_min: 2
+  risk_penalty_rate: 0.05

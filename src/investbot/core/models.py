@@ -90,8 +90,13 @@ class InstrumentMeta(Strict):
     maturity: date | None = None
     # фонды
     fund_focus: FundFocus | None = None
-    # доступ
+    # доступ и торгуемость (флаги брокера; для ручных бумаг — по умолчанию доступны)
     for_qual_only: bool = False
+    buy_available: bool = True
+    sell_available: bool = True
+    for_iis: bool = True
+    min_price_increment: Decimal | None = None
+    issuer: str | None = None  # для сквозного лимита эмитента; None — лимит по бумаге не считается
 
 
 PositionSource = Literal["broker", "manual", "dfa_card"]
