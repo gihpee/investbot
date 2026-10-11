@@ -91,8 +91,11 @@ API Т-Инвестиций и индекс SDK используют серти�
 cd /opt/investbot && mkdir -p docker/certs data/local && for f in russian_trusted_root_ca_pem.crt russian_trusted_sub_ca_pem.crt russian_trusted_sub_ca_2024_pem.crt; do curl -fsSo docker/certs/$f https://gu-st.ru/content/lending/$f; done
 ```
 
+Файлы Госуслуг заканчиваются без перевода строки, поэтому при склейке он добавляется после каждого файла (иначе
+`-----END CERTIFICATE-----` и следующий `-----BEGIN` окажутся в одной строке и bundle не прочитается):
+
 ```bash
-cat /etc/ssl/certs/ca-certificates.crt docker/certs/*.crt > data/local/ca-bundle.pem
+for f in /etc/ssl/certs/ca-certificates.crt docker/certs/*.crt; do cat "$f"; echo; done > data/local/ca-bundle.pem
 ```
 
 ## 5. Секреты и .env
