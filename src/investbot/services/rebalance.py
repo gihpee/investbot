@@ -9,6 +9,7 @@ from collections import defaultdict
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Protocol
 
 import structlog
 
@@ -37,6 +38,10 @@ DECISIONS = ("accept", "postpone", "skip")
 
 
 GatesProvider = Callable[[], Awaitable[list[GateResult]]]  # внешние гейты (G-news и т. п.)
+
+
+class PaperLike(Protocol):
+    async def register_plan(self, plan_id: str, plan: RebalancePlan) -> int: ...
 
 
 class PreparedPlan(Strict):
@@ -110,8 +115,9 @@ def resolve_account(snap: PortfolioSnapshot, hint: str | None) -> str | None:
 class RebalanceService:
     def __init__(self, portfolio: PortfolioService, quotes: QuoteProvider | None, journal: JournalLike,
                  costs: CostModel, tax: TaxModel, trade_ops: TradeOpsProvider | None = None,
-                 extra_gates: GatesProvider | None = None) -> None:
+                 extra_gates: GatesProvider | None = None, paper: PaperLike | None = None) -> None:
         self._portfolio = portfolio
+        self._paper = paper
         self._extra_gates = extra_gates
         self._quotes = quotes
         self._trade_ops = trade_ops
@@ -185,8 +191,14 @@ class RebalanceService:
             "plan": plan.model_dump(mode="json") if plan else None, "ips_version": ips.version,
             "degradation": {"flags": list(deg.flags), "gates": [g.model_dump() for g in deg.gates if not g.ok]},
         })
+        plan_id = record["hash"][:12]
+        if kind == "rebalance_plan" and plan is not None and self._paper is not None:
+            try:  # бумажное исполнение недельного плана (§15.4); сбой не должен мешать отчёту
+                await self._paper.register_plan(plan_id, plan)
+            except Exception as e:
+                log.warning("rebalance.paper_register_failed", error=type(e).__name__)
         return PreparedPlan(
-            plan_id=record["hash"][:12], overview=overview, plan=plan,
+            plan_id=plan_id, overview=overview, plan=plan,
             account_names={a.account_id: a.name for a in snap.accounts},
             notes=tuple(lot_notes), degradation=deg,
         )

@@ -21,6 +21,7 @@ COMMANDS = [
     BotCommand(command="news", description="Новостной фон по позициям: /news или /news SBER"),
     BotCommand(command="allocation", description="Конструктор аллокации"),
     BotCommand(command="edit", description="Ручной портфель: другие брокеры, ЦФА, деньги"),
+    BotCommand(command="journal", description="Качество рекомендаций на бумаге"),
     BotCommand(command="status", description="Состояние системы"),
 ]
 

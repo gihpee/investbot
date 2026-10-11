@@ -185,6 +185,42 @@ journal_record = Table(
     UniqueConstraint("prev", name="uq_journal_record_prev"),
 )
 
+# Бумажное исполнение рекомендаций (§15.4): одна строка на рекомендацию (действие плана, показанную идею или
+# непоказанного кандидата топ-20), исходы — по горизонтам. rec_key — ключ идемпотентности регистрации:
+# "plan:<plan_id>:<seq>" или "idea:<idea_id>". Это производные данные: источник истины — journal_record.
+paper_trade = Table(
+    "paper_trade", metadata,
+    Column("id", Id, primary_key=True, autoincrement=True),
+    Column("rec_key", String(160), nullable=False),
+    Column("kind", String(32), nullable=False),  # rebalance_action | entry_idea | idea_candidate
+    Column("source_arm", String(64)),
+    Column("shown", Boolean, nullable=False),
+    Column("ticker", String(64), nullable=False),
+    Column("asset_class", String(16), nullable=False),
+    Column("side", String(8), nullable=False),  # buy | sell
+    Column("as_of", Date, nullable=False),
+    Column("entry_price", Money, nullable=False),
+    Column("price_unit", String(16), nullable=False),  # rub | pct_nominal
+    Column("benchmark", String(32)),  # NULL — бенчмарк класса не задан, исход не считается
+    Column("horizon_weeks", Integer, nullable=False),  # собственный горизонт рекомендации
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("rec_key", name="uq_paper_trade_rec_key"),
+)
+Index("ix_paper_trade_as_of", paper_trade.c.as_of)
+
+# ret и bench_ret — доходности бумаги и бенчмарка по TR-рядам как есть; excess — с учётом стороны
+# (для продажи знак обратный: избежать падения — успех).
+paper_outcome = Table(
+    "paper_outcome", metadata,
+    Column("paper_trade_id", Id, ForeignKey("paper_trade.id", ondelete="CASCADE"), nullable=False),
+    Column("horizon_weeks", Integer, nullable=False),
+    Column("settled_on", Date, nullable=False),
+    Column("ret", Money, nullable=False),
+    Column("bench_ret", Money, nullable=False),
+    Column("excess", Money, nullable=False),
+    PrimaryKeyConstraint("paper_trade_id", "horizon_weeks", name="pk_paper_outcome"),
+)
+
 
 def default_sqlite_url(data_dir: Path) -> str:
     return f"sqlite+aiosqlite:///{data_dir / 'investbot.db'}"

@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 import structlog
 
 from investbot.adapters.moex_iss import IssClient
+from investbot.adapters.moex_iss.total_return import IssTotalReturn
 from investbot.adapters.rss.collector import RssCollector
 from investbot.adapters.tinvest.broker import TInvestBroker, open_broker
 from investbot.core.models import AssetClass, InstrumentMeta
@@ -18,6 +19,7 @@ from investbot.data.manual_repo import DbManualStore
 from investbot.data.news_repo import NewsRepo
 from investbot.data.quality import gate_news
 from investbot.journal.db_store import DbJournal
+from investbot.journal.paper import PaperBroker
 from investbot.journal.store import Journal, JournalLike
 from investbot.news.linking import AliasIndex, load_aliases
 from investbot.news.sources import load_sources
@@ -106,6 +108,7 @@ class Services:
     calendar: CalendarService
     news: NewsService
     manual: ManualEditor
+    paper: PaperBroker
     broker: TInvestBroker | None
 
     async def held_tickers(self) -> list[str]:
@@ -194,6 +197,7 @@ async def build_services(settings: Settings) -> AsyncIterator[Services]:
             p0 = [x.key for x in sources if x.enabled and x.priority == "P0"]
             return [gate_news([h for h, _ in await news_holder[0].health()], p0, datetime.now(UTC))]
 
+        paper = PaperBroker(engine, IssTotalReturn(iss))
         rebalance = RebalanceService(
             portfolio=portfolio,
             quotes=broker_quote_provider(broker) if broker is not None else None,
@@ -202,6 +206,7 @@ async def build_services(settings: Settings) -> AsyncIterator[Services]:
             tax=TaxModel(rate=settings.tax_rate),
             trade_ops=broker.trade_ops if broker is not None else None,
             extra_gates=extra_gates,
+            paper=paper,
         )
         calendar = CalendarService(portfolio, broker, iss.bondization)
         rss = await stack.enter_async_context(
@@ -216,4 +221,4 @@ async def build_services(settings: Settings) -> AsyncIterator[Services]:
         )
         news_holder.append(news)
         yield Services(settings=settings, portfolio=portfolio, allocation=allocation, rebalance=rebalance,
-                       calendar=calendar, news=news, manual=editor, broker=broker)
+                       calendar=calendar, news=news, manual=editor, paper=paper, broker=broker)

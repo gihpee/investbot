@@ -109,6 +109,7 @@ def _bot(settings: Settings) -> int:
     from investbot.channels.telegram.app import run_bot
     from investbot.channels.telegram.calendar import build_calendar_router, calendar_block
     from investbot.channels.telegram.edit import build_edit_router
+    from investbot.channels.telegram.journal import build_journal_router
     from investbot.channels.telegram.news import build_news_router, news_block
     from investbot.channels.telegram.report import ReportCenter, build_report_router
     from investbot.jobs.scheduler import SingleInstanceLock, build_scheduler
@@ -156,6 +157,9 @@ def _bot(settings: Settings) -> int:
                             await bot.send_message(owner, f"⛔ {e}\nБот остановлен. Выпустите токен «только чтение».")
                             await dp.stop_polling()
 
+                    async def paper_settle() -> None:
+                        await services.paper.settle(date.today())
+
                     async def monday_refresh() -> None:
                         await center.send_refresh(bot, owner)
 
@@ -168,6 +172,7 @@ def _bot(settings: Settings) -> int:
                     build_scheduler(settings.tz, {
                         "weekly_report": (settings.weekly_report_cron, weekly),
                         "monday_refresh": (settings.monday_refresh_cron, monday_refresh),
+                        "paper_settle": ("30 6 * * *", paper_settle),  # после публикации итогов дня в ISS
                         "daily_readonly_check": (settings.daily_check_cron, daily_check),
                         "news_rss": ("*/5 * * * *", news_rss),  # каждый источник — со своим poll_sec
                         "news_tinvest": ("*/15 * * * *", news_tinvest),
@@ -180,6 +185,7 @@ def _bot(settings: Settings) -> int:
                         build_report_router(center),
                         build_calendar_router(services.calendar),
                         build_news_router(services.news, services.held_tickers),
+                        build_journal_router(services.paper),
                         build_edit_router(services.manual),  # последним: шаги мастеров принимают свободный текст
                     ),
                     on_startup=startup,

@@ -209,3 +209,27 @@ async def test_whatif_without_sells_and_monday_refresh_diff(tmp_path: Path) -> N
     center.decided[weekly.plan_id] = {weekly.plan.actions[0].seq: "accept"}
     carried = center._carry_decisions(weekly, refreshed)
     assert carried == {refreshed.plan.actions[0].seq: "accept"}
+
+
+async def test_weekly_plan_is_paper_registered_once(tmp_path: Path) -> None:
+    from investbot.data.db import make_engine, metadata
+    from investbot.journal.paper import PaperBroker
+
+    engine = make_engine(f"sqlite+aiosqlite:///{tmp_path / 'p.db'}")
+    async with engine.begin() as conn:
+        await conn.run_sync(metadata.create_all)
+
+    class NoTR:
+        async def tr_levels(self, ticker: str, asset_class: str, frm: date, to: date) -> list[tuple[date, Decimal]]:
+            return []
+
+    paper = PaperBroker(engine, NoTR())
+    (tmp_path / "ips.yaml").write_text(IPS_YAML, encoding="utf-8")
+    portfolio = PortfolioService(FakeBroker(), tmp_path / "manual.yaml", tmp_path / "ips.yaml")
+    svc = RebalanceService(portfolio, None, Journal(tmp_path / "j.jsonl"), CostModel(), TaxModel(), paper=paper)
+    prep = await svc.weekly_plan(TODAY)
+    await svc.whatif(TODAY, no_sells=True)  # «что если» на бумаге не исполняется
+    assert prep.plan is not None
+    card = await paper.scorecard(kind="rebalance_action", horizon=4)
+    assert card.registered == len(prep.plan.actions)
+    await engine.dispose()
