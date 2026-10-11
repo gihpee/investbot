@@ -254,3 +254,40 @@ async def read_snapshot(engine: AsyncEngine) -> AsyncIterator[AsyncConnection]:
         else:
             await conn.execution_options(isolation_level="REPEATABLE READ")
         yield conn
+
+
+# Вызовы LLM (G10, G11): учёт токенов и стоимости для бюджета, версии промптов и моделей. Без текстов запросов.
+llm_call = Table(
+    "llm_call", metadata,
+    Column("id", Id, primary_key=True, autoincrement=True),
+    Column("at", DateTime(timezone=True), nullable=False),
+    Column("role", String(32), nullable=False),
+    Column("provider", String(32), nullable=False),
+    Column("model", String(128), nullable=False),
+    Column("prompt_id", String(64), nullable=False),
+    Column("input_tokens", Integer, nullable=False),
+    Column("output_tokens", Integer, nullable=False),
+    Column("cost_rub", Money, nullable=False),
+    Column("ok", Boolean, nullable=False),
+    Column("error", Text),
+)
+Index("ix_llm_call_at", llm_call.c.at)
+
+# LLM-разметка новостей (Tagger, §8.2 п. 6): событие из закрытой таксономии и тон к каждой связанной бумаге.
+news_annotation = Table(
+    "news_annotation", metadata,
+    Column("news_id", Id, ForeignKey("news_item.id", ondelete="CASCADE"), nullable=False),
+    Column("ticker", String(32), nullable=False),
+    Column("event_type", String(32), nullable=False),
+    Column("tone", Money, nullable=False),  # −1…+1 к бумаге
+    Column("relevance", Money, nullable=False),  # 0…1
+    Column("confidence", Money, nullable=False),  # 0…1
+    Column("is_ad", Boolean, nullable=False),
+    Column("is_rumor", Boolean, nullable=False),
+    Column("summary", Text, nullable=False),
+    Column("model", String(128), nullable=False),
+    Column("prompt_id", String(64), nullable=False),
+    Column("annotated_at", DateTime(timezone=True), nullable=False),
+    PrimaryKeyConstraint("news_id", "ticker", name="pk_news_annotation"),
+)
+Index("ix_news_annotation_ticker", news_annotation.c.ticker)
