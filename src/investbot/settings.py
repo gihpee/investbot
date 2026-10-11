@@ -11,7 +11,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="INVESTBOT_", env_file=".env", extra="ignore")
+    # env_ignore_empty: пустое `KEY=` из .env (docker compose передаёт его как "") — то же, что не задано
+    model_config = SettingsConfigDict(env_prefix="INVESTBOT_", env_file=".env", extra="ignore", env_ignore_empty=True)
 
     deployment_mode: Literal["personal"] = "personal"  # ADR-20: другие режимы заблокированы кодом
     tz: str = "Europe/Moscow"

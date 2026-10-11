@@ -24,6 +24,8 @@ def redact(_: Any, __: str, event: MutableMapping[str, Any]) -> MutableMapping[s
 
 def setup_logging(level: str = "INFO", json: bool = False) -> None:
     logging.basicConfig(level=level, format="%(message)s")
+    for noisy in ("httpx", "httpcore"):  # строка на каждый запрос к лентам и LLM — только предупреждения и ошибки
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     renderer: Any = structlog.processors.JSONRenderer() if json else structlog.dev.ConsoleRenderer()
     structlog.configure(
         processors=[

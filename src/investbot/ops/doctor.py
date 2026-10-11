@@ -43,6 +43,26 @@ def build_ca_bundle(certs_dir: Path, out: Path) -> Path:
     return out
 
 
+RU_ROOT_CN = "Russian Trusted Root CA"
+
+
+def _load_bundle(path: Path) -> ssl.SSLContext | None:
+    try:
+        return ssl.create_default_context(cafile=str(path))
+    except (ssl.SSLError, OSError):
+        return None
+
+
+def bundle_status(path: Path) -> tuple[bool, str]:
+    """Bundle читается как PEM и содержит корень Минцифры — иначе подсказка, как пересобрать."""
+    ctx = _load_bundle(path)
+    if ctx is None:
+        return False, f"{path}: пуст или не PEM — пересоберите (docs/DEPLOY.md, шаг 4)"
+    if not any(f"'commonName', '{RU_ROOT_CN}'" in str(cert.get("subject")) for cert in ctx.get_ca_certs()):
+        return False, f"{path}: нет {RU_ROOT_CN} (Минцифры) — docs/DEPLOY.md, шаг 4"
+    return True, str(path)
+
+
 def _tls_check(host: str, port: int, cafile: str, timeout: float = 8.0) -> Check:
     ctx = ssl.create_default_context(cafile=cafile)
     try:
@@ -57,9 +77,13 @@ def _tls_check(host: str, port: int, cafile: str, timeout: float = 8.0) -> Check
 
 async def run_doctor(settings: Settings) -> list[Check]:
     checks: list[Check] = []
-    cafile = str(settings.ca_bundle) if settings.ca_bundle and settings.ca_bundle.exists() else certifi.where()
-    checks.append(Check("CA bundle", settings.ca_bundle is not None and settings.ca_bundle.exists(),
-                        str(settings.ca_bundle) if settings.ca_bundle else "не задан (INVESTBOT_CA_BUNDLE)"))
+    bundle = settings.ca_bundle
+    if bundle is None or not bundle.exists():
+        bundle_ok, detail = False, f"{bundle}: файла нет" if bundle else "не задан (INVESTBOT_CA_BUNDLE)"
+    else:
+        bundle_ok, detail = bundle_status(bundle)
+    checks.append(Check("CA bundle", bundle_ok, detail))
+    cafile = str(bundle) if bundle and bundle.exists() and _load_bundle(bundle) else certifi.where()
     for name, (host, port) in HOSTS.items():
         c = await asyncio.to_thread(_tls_check, host, port, cafile)
         c.name = name

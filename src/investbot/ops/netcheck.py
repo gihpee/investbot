@@ -34,7 +34,12 @@ class NetResult:
 
 
 def _ctx(cafile: Path | None) -> ssl.SSLContext:
-    return ssl.create_default_context(cafile=str(cafile) if cafile and cafile.exists() else certifi.where())
+    if cafile and cafile.exists():
+        try:
+            return ssl.create_default_context(cafile=str(cafile))
+        except ssl.SSLError:
+            pass  # пустой или битый bundle: о нём сообщает проверка конфигурации, сеть проверяем с системными корнями
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 async def _probe(group: str, name: str, url: str, ctx: ssl.SSLContext, *, proxy: str | None = None,

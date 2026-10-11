@@ -84,12 +84,15 @@ rsync -az --delete --exclude .venv --exclude data/local --exclude secrets --excl
 ## 4. Сертификаты Минцифры
 
 API Т-Инвестиций и индекс SDK используют сертификаты Russian Trusted Root CA. В систему их ставить не нужно —
-только в bundle для бота. На странице Госуслуг «Сертификаты Минцифры» (https://www.gosuslugi.ru/crt) скачайте
-корневой `russian_trusted_root_ca_pem.crt` и выпускающий `russian_trusted_sub_ca_pem.crt` (для opensource.tbank.ru
-нужен выпуск 2024 года), положите в `/opt/investbot/docker/certs/` и соберите bundle:
+только в bundle для бота. Корневой и выпускающие сертификаты скачиваются с сервера Госуслуг (gu-st.ru, раздел
+«Сертификаты Минцифры» на https://www.gosuslugi.ru/crt); для opensource.tbank.ru нужен выпускающий 2024 года:
 
 ```bash
-cd /opt/investbot && mkdir -p data/local && cat /etc/ssl/certs/ca-certificates.crt docker/certs/*.crt > data/local/ca-bundle.pem
+cd /opt/investbot && mkdir -p docker/certs data/local && for f in russian_trusted_root_ca_pem.crt russian_trusted_sub_ca_pem.crt russian_trusted_sub_ca_2024_pem.crt; do curl -fsSo docker/certs/$f https://gu-st.ru/content/lending/$f; done
+```
+
+```bash
+cat /etc/ssl/certs/ca-certificates.crt docker/certs/*.crt > data/local/ca-bundle.pem
 ```
 
 ## 5. Секреты и .env
