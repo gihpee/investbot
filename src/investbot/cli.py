@@ -109,6 +109,7 @@ def _bot(settings: Settings) -> int:
     from investbot.channels.telegram.app import run_bot
     from investbot.channels.telegram.calendar import build_calendar_router, calendar_block
     from investbot.channels.telegram.edit import build_edit_router
+    from investbot.channels.telegram.ideas import build_ideas_router, ideas_block
     from investbot.channels.telegram.journal import build_journal_router
     from investbot.channels.telegram.news import build_news_router, news_block
     from investbot.channels.telegram.report import ReportCenter, build_report_router
@@ -128,6 +129,11 @@ def _bot(settings: Settings) -> int:
             async with build_services(settings) as services:
                 async def events_block(as_of: date) -> str | None:
                     blocks: list[str] = []
+                    try:  # публикация идей недели: предрегистрация и бумажное исполнение до отправки отчёта
+                        if ib := ideas_block((await services.ideas.weekly(as_of)).ideas):
+                            blocks.append(ib)
+                    except Exception as e:
+                        log.warning("report.ideas_block_failed", error=type(e).__name__)
                     result = await services.calendar.upcoming(as_of, days=7)
                     if cal := calendar_block(result.events, as_of, days=7):
                         blocks.append(cal)
@@ -186,6 +192,7 @@ def _bot(settings: Settings) -> int:
                         build_calendar_router(services.calendar),
                         build_news_router(services.news, services.held_tickers),
                         build_journal_router(services.paper),
+                        build_ideas_router(services.ideas),
                         build_edit_router(services.manual),  # последним: шаги мастеров принимают свободный текст
                     ),
                     on_startup=startup,

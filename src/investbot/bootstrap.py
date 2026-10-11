@@ -28,6 +28,7 @@ from investbot.portfolio.manual_store import ManualStore, YamlManualStore
 from investbot.rebalance.models import CostModel, Quote, TaxModel
 from investbot.services.allocation import AllocationService
 from investbot.services.calendar import CalendarService
+from investbot.services.ideas import IdeasService
 from investbot.services.manual import ManualEditor
 from investbot.services.news import AliasProvider, NewsService
 from investbot.services.portfolio import BrokerSnapshotCache, PortfolioService
@@ -109,6 +110,7 @@ class Services:
     news: NewsService
     manual: ManualEditor
     paper: PaperBroker
+    ideas: IdeasService
     broker: TInvestBroker | None
 
     async def held_tickers(self) -> list[str]:
@@ -209,6 +211,17 @@ async def build_services(settings: Settings) -> AsyncIterator[Services]:
             paper=paper,
         )
         calendar = CalendarService(portfolio, broker, iss.bondization)
+
+        async def qualified() -> bool:
+            return broker is not None and (await broker.user_info()).qualified
+
+        ideas = IdeasService(
+            portfolio=portfolio, bonds_market=iss.bonds_market, zcyc=iss.zcyc,
+            bond_meta=broker.instrument_meta if broker is not None else None,
+            qualified=qualified, journal=journal, paper=paper,
+            costs=CostModel(broker_fee_rate=settings.broker_fee_rate),
+            config_path=settings.config_dir / "ideas.yaml", key_rate=settings.key_rate,
+        )
         rss = await stack.enter_async_context(
             RssCollector(verify=str(settings.ca_bundle) if settings.ca_bundle else True)
         )
@@ -221,4 +234,4 @@ async def build_services(settings: Settings) -> AsyncIterator[Services]:
         )
         news_holder.append(news)
         yield Services(settings=settings, portfolio=portfolio, allocation=allocation, rebalance=rebalance,
-                       calendar=calendar, news=news, manual=editor, paper=paper, broker=broker)
+                       calendar=calendar, news=news, manual=editor, paper=paper, ideas=ideas, broker=broker)

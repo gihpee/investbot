@@ -17,6 +17,7 @@ from investbot.adapters.moex_iss.models import (
     Amortization,
     BondDailyBar,
     Bondization,
+    BondMarketRow,
     Coupon,
     CurvePoint,
     DailyBar,
@@ -72,6 +73,50 @@ def _load[M: IssModel](model: type[M], rows: list[Row], rename: Mapping[str, str
         except ValidationError as exc:
             raise IssError(f"неожиданный формат ISS для {model.__name__}: {exc}") from exc
     return out
+
+
+def _by_secid(rows: list[Row]) -> dict[str, Row]:
+    return {str(r["SECID"]): r for r in rows if r.get("SECID")}
+
+
+def _nz(v: Any) -> Any:
+    """Ноль и пустое значение ISS → None (для полей, где ноль означает «не рассчитано»)."""
+    return None if v in (0, "", None) else v
+
+
+def _bond_row(board: str, sec: Row, md: Row, yl: Row) -> BondMarketRow:
+    effective = _nz(yl.get("EFFECTIVEYIELD"))
+    spreads_known = effective is not None  # при нулевой доходности спреды ISS — тоже ночные нули
+    return BondMarketRow(
+        secid=str(sec["SECID"]),
+        board=str(sec.get("BOARDID") or board),
+        shortname=sec.get("SHORTNAME"),
+        isin=sec.get("ISIN"),
+        face_value=sec.get("FACEVALUE"),
+        face_unit=sec.get("FACEUNIT"),
+        coupon_percent=sec.get("COUPONPERCENT"),
+        coupon_value=sec.get("COUPONVALUE"),
+        next_coupon=sec.get("NEXTCOUPON"),
+        accrued_int=sec.get("ACCRUEDINT"),
+        mat_date=sec.get("MATDATE"),
+        offer_date=sec.get("OFFERDATE"),
+        buyback_date=sec.get("BUYBACKDATE"),
+        call_option_date=sec.get("CALLOPTIONDATE"),
+        put_option_date=sec.get("PUTOPTIONDATE"),
+        lot_size=sec.get("LOTSIZE"),
+        list_level=sec.get("LISTLEVEL"),
+        sec_type=sec.get("SECTYPE"),
+        price_pct=_nz(yl.get("PRICE")) or _nz(md.get("LAST")) or _nz(sec.get("PREVPRICE")),
+        effective_yield=effective,
+        yield_to_offer=_nz(yl.get("YIELDTOOFFER")) or _nz(md.get("YIELDTOOFFER")),
+        yield_date=yl.get("YIELDDATE"),
+        duration_days=_nz(yl.get("DURATION")) or _nz(md.get("DURATION")),
+        gspread_bp=yl.get("GSPREADBP") if spreads_known else None,
+        zspread_bp=yl.get("ZSPREADBP") if spreads_known else None,
+        val_today=md.get("VALTODAY"),
+        num_trades=md.get("NUMTRADES"),
+        trading_status=md.get("TRADINGSTATUS"),
+    )
 
 
 def _ssl(verify: str | bool) -> ssl.SSLContext | bool:
@@ -178,6 +223,27 @@ class IssClient:
             params["date"] = on.isoformat()
         js = await self._get("/engines/stock/zcyc.json", params)
         return _load(CurvePoint, parse_block(js, "yearyields"))
+
+    async def bonds_market(self, board: str) -> list[BondMarketRow]:
+        """Все облигации режима (TQOB, TQCB, …) одним запросом: справочник, котировки и доходности по SECID.
+
+        Исключение из правила «нули не трогаем»: в EFFECTIVEYIELD/DURATION/YIELDTOOFFER/PRICE ноль у ISS
+        означает «не рассчитано» (ночь, выходные, флоатеры), поэтому BondMarketRow превращает его в None.
+        """
+        path = f"/engines/stock/markets/bonds/boards/{board}/securities.json"
+        js = await self._get(path, {"iss.only": "securities,marketdata,marketdata_yields"})
+        market = _by_secid(parse_block(js, "marketdata"))
+        yields = _by_secid(parse_block(js, "marketdata_yields"))
+        out: list[BondMarketRow] = []
+        for sec in parse_block(js, "securities"):
+            secid = sec.get("SECID")
+            if not secid:
+                raise IssError(f"ISS: строка без SECID в {path}")
+            try:
+                out.append(_bond_row(board, sec, market.get(secid, {}), yields.get(secid, {})))
+            except ValidationError as exc:
+                raise IssError(f"неожиданный формат ISS для облигации {secid}: {exc}") from exc
+        return out
 
     async def security(self, secid: str) -> SecurityInfo:
         """Карточка бумаги и основной режим торгов (режим не хардкодим: БПИФ переехали в TQBR)."""

@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     privacy_mode: Literal["weights", "full"] = "weights"  # N4: в Telegram по умолчанию только доли
     quantity_message_ttl_sec: int = 600  # сообщение с количествами удаляется через 10 минут
 
+    # Ключевая ставка ЦБ (простая, годовая) — безрисковая ставка для carry идей. На 09.10.2026: 14%
+    # (docs/RESEARCH.md §8.1). Обновлять после заседаний ЦБ; автоматическая загрузка — следующий шаг.
+    key_rate: Decimal = Decimal("0.14")
+
     # Тариф и налоги (ориентиры; сверять со страницей тарифа брокера)
     broker_fee_rate: Decimal = Decimal("0.003")
     tax_rate: Decimal = Decimal("0.13")

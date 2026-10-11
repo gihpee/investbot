@@ -1,0 +1,28 @@
+{
+"securities": {
+	"columns": ["SECID", "BOARDID", "SHORTNAME", "PREVWAPRICE", "YIELDATPREVWAPRICE", "COUPONVALUE", "NEXTCOUPON", "ACCRUEDINT", "PREVPRICE", "LOTSIZE", "FACEVALUE", "BOARDNAME", "STATUS", "MATDATE", "DECIMALS", "COUPONPERIOD", "ISSUESIZE", "PREVLEGALCLOSEPRICE", "PREVDATE", "SECNAME", "REMARKS", "MARKETCODE", "INSTRID", "SECTORID", "MINSTEP", "FACEUNIT", "BUYBACKPRICE", "BUYBACKDATE", "ISIN", "LATNAME", "REGNUMBER", "CURRENCYID", "ISSUESIZEPLACED", "LISTLEVEL", "SECTYPE", "COUPONPERCENT", "OFFERDATE", "SETTLEDATE", "LOTVALUE", "FACEVALUEONSETTLEDATE", "CALLOPTIONDATE", "PUTOPTIONDATE", "DATEYIELDFROMISSUER", "BONDTYPE", "BONDSUBTYPE"],
+	"data": [
+		["RU000A10AAA1", "TQCB", "Альфа 1Р1", 98.7, null, 41.88, "2026-11-12", 26.15, 98.75, 1, 1000, "Т+: Облигации - безадрес.", "A", "2029-08-09", 2, 91, null, null, "2026-10-08", "Альфа ПАО БО-001Р-01", null, null, null, null, 0.01, "SUR", null, "0000-00-00", "RU000A10AAA1", "Alfa 1P1", null, "SUR", null, 2, "6", 16.8, "2027-08-12", "2026-10-12", null, null, null, "2027-08-12", null, "Корпоративная облигация", "Биржевая облигация"],
+		["RU000A10FLT1", "TQCB", "Флоат 1Р2", null, null, 44.88, "2026-12-10", 14.2, 100.1, 1, 1000, "Т+: Облигации - безадрес.", "A", "2027-12-09", 2, 91, null, null, "2026-10-08", null, null, null, null, null, 0.01, "SUR", null, "0000-00-00", "RU000A10FLT1", null, null, "SUR", null, 2, "6", 18.0, "0000-00-00", "2026-10-12", null, null, null, null, null, "Корпоративная облигация", "Биржевая облигация"],
+		["RU000A10USD1", "TQCB", "ЗамещUSD", null, null, 22.5, "2027-01-15", null, 96.4, 1, 1000, "Т+: Облигации - безадрес.", "A", "2030-07-15", 2, 91, null, null, "2026-10-08", null, null, null, null, null, 0.01, "USD", null, "0000-00-00", "RU000A10USD1", null, null, "SUR", null, 3, "6", 4.5, null, "2026-10-12", null, null, null, null, null, "Корпоративная облигация", "Биржевая облигация"],
+		["RU000A10NOM1", "TQCB", "Тихая 1Р1", null, null, 37.4, "2026-10-30", null, 101.2, 1, 1000, "Т+: Облигации - безадрес.", "A", "2028-04-28", 2, 91, null, null, "2026-10-08", null, null, null, null, null, 0.01, "SUR", null, "0000-00-00", "RU000A10NOM1", null, null, "SUR", null, 3, "6", 15.0, null, "2026-10-12", null, null, null, null, null, "Корпоративная облигация", "Биржевая облигация"]
+	]
+},
+"marketdata": {
+	"columns": ["SECID", "BID", "BIDDEPTH", "OFFER", "OFFERDEPTH", "SPREAD", "BIDDEPTHT", "OFFERDEPTHT", "OPEN", "LOW", "HIGH", "LAST", "LASTCHANGE", "LASTCHANGEPRCNT", "QTY", "VALUE", "YIELD", "VALUE_USD", "WAPRICE", "LASTCNGTOLASTWAPRICE", "WAPTOPREVWAPRICEPRCNT", "WAPTOPREVWAPRICE", "YIELDATWAPRICE", "YIELDTOPREVYIELD", "CLOSEYIELD", "CLOSEPRICE", "MARKETPRICETODAY", "MARKETPRICE", "LASTTOPREVPRICE", "NUMTRADES", "VOLTODAY", "VALTODAY", "VALTODAY_USD", "BOARDID", "TRADINGSTATUS", "UPDATETIME", "DURATION", "NUMBIDS", "NUMOFFERS", "CHANGE", "TIME", "HIGHBID", "LOWOFFER", "PRICEMINUSPREVWAPRICE", "LASTBID", "LASTOFFER", "LCURRENTPRICE", "LCLOSEPRICE", "MARKETPRICE2", "ADMITTEDQUOTE", "OPENPERIODPRICE", "SEQNUM", "SYSTIME", "VALTODAY_RUR", "IRICPICLOSE", "BEICLOSE", "CBRCLOSE", "YIELDTOOFFER", "YIELDLASTCOUPON", "TRADINGSESSION", "CALLOPTIONYIELD", "CALLOPTIONDURATION"],
+	"data": [
+		["RU000A10AAA1", 98.85, null, 98.95, null, null, null, null, null, null, null, 98.9, null, null, null, null, 17.79, null, 98.81, null, null, null, null, null, null, null, null, null, null, 412, null, 35123456.7, null, "TQCB", "T", "18:39:52", 280, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 20261009185452, "2026-10-09 18:54:52", null, null, null, null, 17.79, null, "3", null, null],
+		["RU000A10FLT1", null, null, null, null, null, null, null, null, null, null, 100.15, null, null, null, null, 0, null, null, null, null, null, null, null, null, null, null, null, null, 96, null, 12000000, null, "TQCB", "T", "18:39:52", 0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 20261009185452, "2026-10-09 18:54:52", null, null, null, null, 0, null, "3", null, null],
+		["RU000A10USD1", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 0, null, null, null, null, null, null, null, null, null, null, null, null, 0, null, 0, null, "TQCB", "T", "18:39:52", 0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 20261009185452, "2026-10-09 18:54:52", null, null, null, null, null, null, "3", null, null]
+	]
+},
+"marketdata_yields": {
+	"columns": ["SECID", "BOARDID", "PRICE", "YIELDDATE", "ZCYCMOMENT", "YIELDDATETYPE", "EFFECTIVEYIELD", "DURATION", "ZSPREADBP", "GSPREADBP", "WAPRICE", "EFFECTIVEYIELDWAPRICE", "DURATIONWAPRICE", "IR", "ICPI", "BEI", "CBR", "YIELDTOOFFER", "YIELDLASTCOUPON", "TRADEMOMENT", "SEQNUM", "SYSTIME"],
+	"data": [
+		["RU000A10AAA1", "TQCB", 98.88, "2027-08-12", "2026-10-09 18:39:52", "offer", 17.8123, 287, 245, 262, 98.81, null, null, null, null, null, null, 17.8123, null, "2026-10-09 18:39:52", 20261009185452, "2026-10-09 18:54:52"],
+		["RU000A10FLT1", "TQCB", 0, "0000-00-00", "2026-10-09 18:39:52", null, 0, 0, 0, 0, null, null, null, null, null, null, null, 0, null, "2026-10-09 18:39:52", 20261009185452, "2026-10-09 18:54:52"],
+		["RU000A10USD1", "TQCB", 0, "0000-00-00", "2026-10-09 18:39:52", null, 0, 0, 0, 0, null, null, null, null, null, null, null, null, null, "2026-10-09 18:39:52", 20261009185452, "2026-10-09 18:54:52"],
+		["RU000A10NOM1", "TQCB", null, "2028-04-28", "2026-10-09 18:39:52", "maturity", 14.37, 520, -12, -3, null, null, null, null, null, null, null, null, null, "2026-10-09 18:39:52", 20261009185452, "2026-10-09 18:54:52"]
+	]
+}
+}

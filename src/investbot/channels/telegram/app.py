@@ -17,6 +17,7 @@ COMMANDS = [
     BotCommand(command="portfolio", description="Портфель и отклонения от целей"),
     BotCommand(command="report", description="План ребалансировки сейчас"),
     BotCommand(command="invest", description="Распределить пополнение: /invest 50000"),
+    BotCommand(command="ideas", description="Идеи для входа (облигации)"),
     BotCommand(command="calendar", description="Купоны, оферты, погашения, дивиденды"),
     BotCommand(command="news", description="Новостной фон по позициям: /news или /news SBER"),
     BotCommand(command="allocation", description="Конструктор аллокации"),

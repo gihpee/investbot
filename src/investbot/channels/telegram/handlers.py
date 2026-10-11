@@ -22,9 +22,11 @@ BTN_STATUS = "⚙️ Статус"
 BTN_CALENDAR = "🗓 Календарь"
 BTN_MANUAL = "✍️ Ручной портфель"  # обрабатывается роутером channels/telegram/edit.py
 BTN_NEWS = "📰 Новости"  # обрабатывается роутером channels/telegram/news.py
+BTN_IDEAS = "💡 Идеи"  # обрабатывается роутером channels/telegram/ideas.py
 
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(text=BTN_PORTFOLIO), KeyboardButton(text=BTN_ALLOCATION)],
+    keyboard=[[KeyboardButton(text=BTN_PORTFOLIO), KeyboardButton(text=BTN_IDEAS)],
+              [KeyboardButton(text=BTN_ALLOCATION)],
               [KeyboardButton(text=BTN_CALENDAR), KeyboardButton(text=BTN_NEWS)],
               [KeyboardButton(text=BTN_MANUAL), KeyboardButton(text=BTN_STATUS)]],
     resize_keyboard=True,
