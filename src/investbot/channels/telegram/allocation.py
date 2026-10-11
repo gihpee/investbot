@@ -15,19 +15,38 @@ from typing import Protocol
 
 import structlog
 from aiogram import F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from investbot.allocation.models import AllocationEdit, AllocationVariant, DraftDiff, VariantMetrics
-from investbot.channels.telegram.render import DISCLAIMER, title
+from investbot.channels.telegram.handlers import (
+    BTN_ALLOCATION as MAIN_BTN_ALLOCATION,
+)
+from investbot.channels.telegram.handlers import (
+    BTN_CALENDAR,
+    BTN_IDEAS,
+    BTN_MANUAL,
+    BTN_NEWS,
+    BTN_PORTFOLIO,
+    BTN_STATUS,
+)
+from investbot.channels.telegram.render import BUCKET_TITLES, DISCLAIMER, title
 from investbot.core.money import pct, pp
+from investbot.llm_roles.allocation_advisor import AdvisorResult
 from investbot.rebalance.ips import IPS
 from investbot.services.questionnaire import QUESTIONS, ProfileAnswers
+
+MENU_TEXTS = {MAIN_BTN_ALLOCATION, BTN_CALENDAR, BTN_IDEAS, BTN_MANUAL, BTN_NEWS, BTN_PORTFOLIO, BTN_STATUS}
 
 log = structlog.get_logger(__name__)
 
 STEP = Decimal("0.05")
 BTN_ALLOCATION = "🎯 Аллокация"
+
+
+class AdvisorLike(Protocol):
+    async def interpret(self, text: str, draft: Mapping[str, Decimal], titles: Mapping[str, str],
+                        available: Sequence[str]) -> AdvisorResult | None: ...
 
 
 class AllocationServiceLike(Protocol):
@@ -139,7 +158,8 @@ WHY = {
 }
 
 
-def build_allocation_router(service: AllocationServiceLike, today: date | None = None) -> Router:
+def build_allocation_router(service: AllocationServiceLike, today: date | None = None,
+                            advisor: AdvisorLike | None = None) -> Router:
     router = Router(name="allocation")
     s = Session()
 
@@ -261,6 +281,41 @@ def build_allocation_router(service: AllocationServiceLike, today: date | None =
         if s.variants and isinstance(cb.message, Message):
             text, markup = variants_view(list(s.variants.values()))
             await cb.message.answer(text, reply_markup=markup)
+
+    def _discussing(message: Message) -> bool:
+        text = message.text or ""
+        return (advisor is not None and s.draft is not None and bool(text) and not text.startswith("/")
+                and text not in MENU_TEXTS)
+
+    @router.message(StateFilter(None), _discussing)
+    async def discuss(message: Message) -> None:
+        """Свободный текст при открытом черновике: LLM → правки → пересчёт движком → diff (§10.8)."""
+        if advisor is None or s.draft is None:
+            return
+        res = await advisor.interpret(message.text or "", s.draft, BUCKET_TITLES, list(s.draft))
+        if res is None:
+            await message.answer("Сейчас не получается разобрать просьбу текстом — воспользуйтесь кнопками "
+                                 "под черновиком.")
+            return
+        if res.clarify and not res.edits and not res.whatif:
+            await message.answer(f"Уточните, пожалуйста: {escape(res.clarify)}")
+            return
+        before = dict(s.draft)
+        first: DraftDiff | None = None
+        last: DraftDiff | None = None
+        for edit in res.edits:
+            last = await service.edit(s.draft, edit, _today())
+            first = first or last
+            s.draft, s.draft_metrics, s.draft_violations = dict(last.after), last.metrics_after, last.violations
+        head = [f"Понял так: {escape(res.intent)}"] if res.intent else []
+        head.extend(f"⚠️ Не применено: {escape(r)}" for r in res.rejected)
+        if res.whatif and not res.edits:
+            head.append("Стресс-сценарии и риск текущего черновика — ниже.")
+        combined = None
+        if first is not None and last is not None:
+            combined = last.model_copy(update={"before": before, "metrics_before": first.metrics_before})
+        text, markup = draft_view(s, combined)
+        await message.answer("\n".join([*head, "", text]) if head else text, reply_markup=markup)
 
     @router.callback_query(F.data == "al:approve")
     async def approve(cb: CallbackQuery) -> None:
