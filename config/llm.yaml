@@ -1,0 +1,80 @@
+# LLM-роутер (ARCHITECTURE §9.6 G2/G8/G10/G11, §9.7, ADR-09). Читает investbot.adapters.llm.config.load_llm_config.
+# Ключи — только в окружении: здесь ИМЕНА переменных (api_key_env, header_envs), а не значения.
+# Провайдер без ключа в окружении просто не подключается; без ключей вовсе LLM-слой выключен (шаблоны, L2).
+# id моделей — точные, без плавающих алиасов (§9.5, G10); сверять с GET /v1/models при развёртывании.
+# Цены — ₽ за 1M токенов с НДС (тариф Cloud.ru от 02.10.2026, страница тарифов Yandex AI Studio), могут меняться
+# без уведомления: сверять с GET /v1/models и страницами тарифов ежемесячно.
+version: 1
+primary_provider: cloudru           # или yandex — по итогам спайка Ф0
+
+# ₽. Тесты G11 (tests/unit/test_llm_router.py): оценка недельного прогона × 1,2 ≤ per_run;
+# оценка месяца (объёмы §9.7, модели из roles, квота Q&A) × 1,2 ≤ monthly — для каждого провайдера как основного.
+budgets:
+  cloudru: {monthly: 2500, per_run: 60, qa_monthly_quota: 100}   # месяц ≈ 1 400 ₽; прогон ≈ 37 ₽; Writer = DeepSeek-V4-Pro → per_run: 95
+  yandex:  {monthly: 4000, per_run: 160, qa_monthly_quota: 60}   # месяц ≈ 3 130 ₽; прогон ≈ 130 ₽; тон вселенной — только правила
+
+degrade_at: 0.9                     # при 90% месячного лимита роль пробует только самую дешёвую модель цепочки
+reasoning_output_factor: 3          # скрытые рассуждения: выход reasoning-моделей × 3 в оценке и в max_tokens запроса
+chars_per_token: 4                  # грубая оценка входа для бюджета
+breaker: {errors: 3, window_s: 300, cooldown_s: 600}   # 3 ошибки за 5 минут — пауза 10 минут
+qa_roles: [qa, allocation_advisor]  # общая месячная квота вопросов (qa_monthly_quota)
+default_temperature: 0.2
+temperatures: {tagger: 0, tagger_universe: 0, critic: 0, allocation_advisor: 0}
+
+providers:
+  cloudru:
+    base_url: https://foundation-models.api.cloud.ru/v1
+    api_key_env: CLOUDRU_API_KEY
+    rps: 20                         # лимит на сервисный API-ключ
+    timeout_s: 120
+    supports_response_format_json: true
+    supports_tools: true
+    models:
+      # резидентность — по полю metadata.provider в GET /v1/models: cloud.ru (внутреннее) или external
+      ai-sage/GigaChat3.5-432B-A28B-Reasoning:
+        {data_in_ru: true, reasoning: true, price_in_rub_per_m: 96, price_out_rub_per_m: 289}
+      ai-sage/GigaChat3-10B-A1.8B:
+        {data_in_ru: true, price_in_rub_per_m: 12, price_out_rub_per_m: 12}
+      deepseek-ai/DeepSeek-V4-Pro:
+        {data_in_ru: true, reasoning: true, price_in_rub_per_m: 183, price_out_rub_per_m: 732}
+      deepseek-ai/DeepSeek-V4-Flash:  # внешнее размещение: только публичные тексты без портфельного контекста
+        {data_in_ru: false, reasoning: true, price_in_rub_per_m: 43.30, price_out_rub_per_m: 86.58}
+  yandex:
+    base_url: https://llm.api.cloud.yandex.net/v1
+    api_key_env: YC_API_KEY
+    # [проверить в Ф0]: OpenAI-клиент шлёт «Authorization: Bearer <API-ключ>» и каталог в OpenAI-Project;
+    # нативный API Yandex — «Api-Key <ключ>» и x-folder-id
+    auth_scheme: Bearer
+    header_envs: {OpenAI-Project: YC_FOLDER_ID}
+    model_template: "gpt://${YC_FOLDER_ID}/{model}"   # URI модели с идентификатором каталога
+    max_concurrency: 10             # 10 одновременных синхронных генераций
+    timeout_s: 120
+    supports_response_format_json: true   # json_object/json_schema, но НЕ вместе с tools (роутер их не совмещает)
+    supports_tools: true
+    models:
+      aliceai-llm:       {data_in_ru: true, price_in_rub_per_m: 500, price_out_rub_per_m: 1200}
+      aliceai-llm-flash: {data_in_ru: true, price_in_rub_per_m: 100, price_out_rub_per_m: 200}   # кэшированный вход 25
+
+# Цепочки provider:model (основная → резерв); после последней — шаблон или только правила (L2).
+roles:
+  tagger:          [cloudru:ai-sage/GigaChat3-10B-A1.8B, yandex:aliceai-llm-flash]
+  tagger_universe: [cloudru:ai-sage/GigaChat3-10B-A1.8B]          # вселенная и топ-20; без Cloud.ru — только правила
+  writer:
+    - cloudru:ai-sage/GigaChat3.5-432B-A28B-Reasoning
+    - cloudru:deepseek-ai/DeepSeek-V4-Pro
+    - yandex:aliceai-llm
+  critic:
+    - cloudru:ai-sage/GigaChat3.5-432B-A28B-Reasoning
+    - yandex:aliceai-llm
+  idea_explainer:                   # «как Writer» (§9.2)
+    - cloudru:ai-sage/GigaChat3.5-432B-A28B-Reasoning
+    - cloudru:deepseek-ai/DeepSeek-V4-Pro
+    - yandex:aliceai-llm
+  qa:                               # DeepSeek-V4-Pro первой — только если пройдёт eval и тест G11 (§9.7)
+    - cloudru:ai-sage/GigaChat3.5-432B-A28B-Reasoning
+    - cloudru:deepseek-ai/DeepSeek-V4-Pro
+    - yandex:aliceai-llm
+  allocation_advisor:               # «как Q&A», общий месячный бюджет и квота с Q&A
+    - cloudru:ai-sage/GigaChat3.5-432B-A28B-Reasoning
+    - cloudru:deepseek-ai/DeepSeek-V4-Pro
+    - yandex:aliceai-llm
