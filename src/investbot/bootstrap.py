@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import structlog
+from dotenv import dotenv_values
 
+from investbot.adapters.llm.factory import build_router
+from investbot.adapters.llm.router import LLMRouter
 from investbot.adapters.moex_iss import IssClient
 from investbot.adapters.moex_iss.total_return import IssTotalReturn
 from investbot.adapters.rss.collector import RssCollector
 from investbot.adapters.tinvest.broker import TInvestBroker, open_broker
 from investbot.core.models import AssetClass, InstrumentMeta
+from investbot.data.annotation_repo import AnnotationRepo
 from investbot.data.db import make_engine
 from investbot.data.manual_repo import DbManualStore
 from investbot.data.news_repo import NewsRepo
@@ -21,8 +27,10 @@ from investbot.data.quality import gate_news
 from investbot.journal.db_store import DbJournal
 from investbot.journal.paper import PaperBroker
 from investbot.journal.store import Journal, JournalLike
+from investbot.llm_roles.tagger import Tagger
 from investbot.news.linking import AliasIndex, load_aliases
 from investbot.news.sources import load_sources
+from investbot.news.taxonomy import load_taxonomy
 from investbot.ops.degradation import GateResult
 from investbot.portfolio.manual_store import ManualStore, YamlManualStore
 from investbot.rebalance.models import CostModel, Quote, TaxModel
@@ -31,8 +39,10 @@ from investbot.services.calendar import CalendarService
 from investbot.services.ideas import IdeasService
 from investbot.services.manual import ManualEditor
 from investbot.services.news import AliasProvider, NewsService
+from investbot.services.news_tone import NewsToneService, ml_sources, q_src_map
 from investbot.services.portfolio import BrokerSnapshotCache, PortfolioService
 from investbot.services.proxies import ProxyStore
+from investbot.services.qa import QaDeps, QaService
 from investbot.services.rebalance import QuoteProvider, RebalanceService
 from investbot.services.status import SystemStatus
 from investbot.settings import Settings
@@ -67,6 +77,7 @@ def broker_quote_provider(broker: TInvestBroker) -> QuoteProvider:
 
 
 ALIAS_TTL = timedelta(hours=6)
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def alias_provider(settings: Settings, portfolio: PortfolioService, broker: TInvestBroker | None) -> AliasProvider:
@@ -111,6 +122,9 @@ class Services:
     manual: ManualEditor
     paper: PaperBroker
     ideas: IdeasService
+    tone: NewsToneService
+    qa: QaService
+    llm: LLMRouter | None
     broker: TInvestBroker | None
 
     async def held_tickers(self) -> list[str]:
@@ -144,8 +158,13 @@ class Services:
                 problems.append(f"источники новостей не отвечают: {', '.join(broken)}")
         except Exception as e:
             problems.append(f"архив новостей недоступен: {type(e).__name__}")
+        llm = "не подключена (отчёт по шаблону, без тона новостей и вопросов)"
+        if self.llm is not None:
+            spent = [f"{p}: {await self.llm.monthly_spent(p):.0f} ₽" for p in self.llm.providers]
+            llm = "подключена · расход за месяц " + ", ".join(spent)
         return SystemStatus(
             checked_at=datetime.now(UTC),
+            llm=llm,
             deployment_mode=self.settings.deployment_mode,
             broker_connected=self.broker is not None and not problems,
             broker_accounts=accounts,
@@ -233,5 +252,35 @@ async def build_services(settings: Settings) -> AsyncIterator[Services]:
             aliases=alias_provider(settings, portfolio, broker),
         )
         news_holder.append(news)
+
+        # LLM-слой: ключи из окружения и .env; без ключей роли уходят в шаблоны (L2)
+        env = {**os.environ, **{k: v for k, v in dotenv_values(".env").items() if v}}
+        llm = build_router(settings.config_dir / "llm.yaml", env, engine,
+                           verify=settings.ca_bundle if settings.ca_bundle else True)
+        if llm is not None:
+            stack.push_async_callback(llm.aclose)
+        sources = load_sources(settings.config_dir / "sources.yaml")
+        names: dict[str, str] = {}
+        tone = NewsToneService(
+            AnnotationRepo(engine),
+            Tagger(llm, ROOT / "prompts" / "tagger.v1.md", load_taxonomy(settings.config_dir / "taxonomy.yaml"))
+            if llm is not None else None,
+            names.get, ml_sources=ml_sources(sources), q_src=q_src_map(sources),
+        )
+        qa = QaService(llm, QaDeps(
+            overview=portfolio.overview,
+            calendar=lambda today, days: calendar.upcoming(today, days=days),
+            news=lambda tickers, now: news.background(tickers, now),
+            tone=lambda tickers, now: tone.summaries(tickers, now),
+            ideas=ideas.latest,
+            scorecard=lambda: paper.scorecard(horizon=4),
+            whatif_no_sells=lambda today: rebalance.whatif(today, no_sells=True),
+        ), privacy_mode=settings.privacy_mode)
+        try:  # названия бумаг для кандидатов разметки новостей
+            snap, _ = await portfolio.snapshot()
+            names.update({p.instrument.ticker: p.instrument.name for p in snap.positions if p.instrument.name})
+        except Exception as e:
+            log.warning("bootstrap.names_failed", error=type(e).__name__)
         yield Services(settings=settings, portfolio=portfolio, allocation=allocation, rebalance=rebalance,
-                       calendar=calendar, news=news, manual=editor, paper=paper, ideas=ideas, broker=broker)
+                       calendar=calendar, news=news, manual=editor, paper=paper, ideas=ideas, tone=tone, qa=qa,
+                       llm=llm, broker=broker)

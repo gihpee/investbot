@@ -30,7 +30,8 @@
 | Архив новостей: 18 RSS-лент (СМИ, ЦБ, MOEX, Smart-lab) + лента News Т-Инвестиций, дедупликация сюжетов (SHA-1 + MinHash), привязка к бумагам по тикеру, ISIN и названию в падежах | `src/investbot/news`, `adapters/rss`, `services/news.py` | ✅ живой сбор проверен: 13 из 18 лент отвечают с зарубежного IP |
 | Новостной фон без LLM: `/news`, блок в недельном отчёте, всплески внимания (buzz_z), здоровье источников в `/status` | `channels/telegram/news.py` | ✅ |
 | БД: SQLAlchemy Core + alembic, Postgres 17 (прод) / SQLite (локально и в тестах) | `src/investbot/data`, `migrations/` | ✅ миграции проверены на Postgres 17 |
-| `investbot doctor` / `certs` / `db upgrade` / `portfolio` / `bot` | `src/investbot/cli.py` | ✅ |
+| LLM-слой (Cloud.ru / Yandex AI Studio, OpenAI-совместимый): роутер с резидентностью данных, бюджетом и circuit breaker; Writer (комментарий к отчёту, числа только из фактов), Tagger (тон новостей), вопросы аналитику (`/ask` и свободный текст), обсуждение аллокации текстом | `adapters/llm`, `llm_roles`, `services/qa.py` | ✅ на заглушке; живая проверка — с ключом провайдера |
+| `investbot doctor` / `certs` / `db upgrade` / `import` / `portfolio` / `bot` | `src/investbot/cli.py` | ✅ |
 
 ## Быстрый старт (локально)
 
@@ -67,11 +68,14 @@ uv run investbot bot
 При первом `/start` бот пришлёт ваш Telegram ID — впишите его в `INVESTBOT_OWNER_TELEGRAM_ID` и перезапустите.
 После этого бот отвечает только вам.
 
-## Токены
+## Токены и ключи
 
 - **Telegram:** создайте бота у @BotFather, токен — в `INVESTBOT_TELEGRAM_BOT_TOKEN`.
 - **Т-Инвестиции:** в приложении «Настройки → Токены T-Invest API» выпустите токен **«Только для чтения»**
   (на все счета или по одному на счёт). Токен с полным доступом бот отвергнет при старте и при ежедневной проверке.
+- **LLM (необязательно):** ключ Cloud.ru Foundation Models (`CLOUDRU_API_KEY`) или Yandex AI Studio
+  (`YC_API_KEY` + `YC_FOLDER_ID`). Без ключа бот работает без текстовых пояснений, тона новостей и вопросов аналитику.
+  Модели, цены и месячные лимиты — `config/llm.yaml`; портфельные данные отправляются только моделям с размещением в РФ.
 
 ## Сертификаты Минцифры
 

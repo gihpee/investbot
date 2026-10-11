@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from html import escape
@@ -279,8 +279,10 @@ class ReportCenter:
     """Хранит последние планы для кнопок решений (однопользовательский бот, в памяти)."""
 
     def __init__(self, service: RebalanceServiceLike, privacy_mode: str, quantity_ttl_sec: int = 600,
-                 events_block: Callable[[date], object] | None = None, today: Callable[[], date] = date.today) -> None:
+                 events_block: Callable[[date], object] | None = None, today: Callable[[], date] = date.today,
+                 commentary: Callable[[PreparedPlan], Awaitable[str | None]] | None = None) -> None:
         self.service = service
+        self.commentary = commentary
         self.privacy_mode = privacy_mode
         self.ttl = quantity_ttl_sec
         self.events_block = events_block
@@ -314,6 +316,12 @@ class ReportCenter:
         events = await self._events(prep.plan.as_of if prep.plan else self.today())
         await bot.send_message(chat_id, weekly_report_message(prep, self.privacy_mode, events, scheduled),
                                reply_markup=actions_keyboard(prep.plan_id, prep.plan, {}))
+        if prep.plan is not None and self.commentary is not None:
+            try:  # текст Writer по фактам плана; без LLM или после отказа валидатора — только шаблон (L2)
+                if note := await self.commentary(prep):
+                    await bot.send_message(chat_id, "<b>🗒 Коротко о неделе</b>\n" + note)
+            except Exception:
+                log.exception("report.commentary_failed")
         if prep.plan is None and scheduled and retry:
             # L4: повтор через 3 часа (один раз), §4.5
             async def later() -> None:

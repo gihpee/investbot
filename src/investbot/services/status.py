@@ -15,4 +15,5 @@ class SystemStatus(Strict):
     ips_version: int | None
     manual_accounts: int
     privacy_mode: str
+    llm: str = "не подключена"
     problems: tuple[str, ...] = ()

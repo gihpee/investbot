@@ -57,7 +57,9 @@ def upgrade() -> None:
         sa.Column("bench_ret", Money, nullable=False),
         sa.Column("excess", Money, nullable=False),
         sa.ForeignKeyConstraint(
-            ["paper_trade_id"], ["paper_trade.id"], name=op.f("fk_paper_outcome_paper_trade_id_paper_trade"),
+            ["paper_trade_id"],
+            ["paper_trade.id"],
+            name=op.f("fk_paper_outcome_paper_trade_id_paper_trade"),
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("paper_trade_id", "horizon_weeks", name="pk_paper_outcome"),

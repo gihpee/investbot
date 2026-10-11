@@ -101,7 +101,9 @@ def upgrade() -> None:
         sa.Column("currency", sa.String(length=16), nullable=False),
         sa.Column("amount", Money, nullable=False),
         sa.ForeignKeyConstraint(
-            ["account_id"], ["manual_account.id"], name=op.f("fk_manual_cash_account_id_manual_account"),
+            ["account_id"],
+            ["manual_account.id"],
+            name=op.f("fk_manual_cash_account_id_manual_account"),
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("account_id", "currency", name="pk_manual_cash"),
@@ -128,7 +130,9 @@ def upgrade() -> None:
         sa.Column("maturity", sa.Date(), nullable=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
-            ["account_id"], ["manual_account.id"], name=op.f("fk_manual_position_account_id_manual_account"),
+            ["account_id"],
+            ["manual_account.id"],
+            name=op.f("fk_manual_position_account_id_manual_account"),
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("account_id", "ticker", name="pk_manual_position"),

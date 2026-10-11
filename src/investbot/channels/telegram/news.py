@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from html import escape
@@ -55,16 +55,19 @@ def _cap(lines: list[str], limit: int) -> str:
 
 
 def news_block(backgrounds: Sequence[TickerNewsBackground], top: int = 5, per_ticker: int = 2,
-               limit: int = 1500) -> str | None:
+               limit: int = 1500, tones: Mapping[str, str] | None = None) -> str | None:
     """Блок «Новостной фон» для недельного отчёта: бумаги с наибольшим числом сюжетов и всплесками."""
     active = [b for b in backgrounds if b.stories_7d > 0]
     if not active:
         return None
     # сначала всплески внимания (по z), затем бумаги с наибольшим числом сюжетов
     active.sort(key=lambda b: (-(b.buzz_z or 0) if (b.buzz_z or 0) >= SPIKE_Z else 0, -b.stories_7d, b.ticker))
-    lines = ["<b>📰 Новостной фон по позициям</b> <i>(без оценки тона)</i>"]
+    hint = "тон — разметка LLM, только для информации" if tones else "без оценки тона"
+    lines = [f"<b>📰 Новостной фон по позициям</b> <i>({hint})</i>"]
     for b in active[:top]:
         lines.append(_summary(b))
+        if tones and (t := tones.get(b.ticker)):
+            lines.append(f"  {escape(t)}")
         lines.extend(f"  • {headline_html(h)}" for h in b.headlines[:per_ticker])
     quiet = len(backgrounds) - len(active)
     if quiet:
@@ -72,14 +75,16 @@ def news_block(backgrounds: Sequence[TickerNewsBackground], top: int = 5, per_ti
     return _cap(lines, limit)
 
 
-def news_message(backgrounds: Sequence[TickerNewsBackground], ticker: str | None = None, limit: int = 4000) -> str:
+def news_message(backgrounds: Sequence[TickerNewsBackground], ticker: str | None = None, limit: int = 4000,
+                 tones: Mapping[str, str] | None = None) -> str:
     if ticker is not None:
         b = next((x for x in backgrounds if x.ticker == ticker), None)
         if b is None or not b.headlines:
             return f"По {escape(ticker)} новостей за неделю в архиве нет."
-        lines = [_summary(b), ""] + [f"• {headline_html(h)}" for h in b.headlines]
+        tone = [escape(t)] if tones and (t := tones.get(ticker)) else []
+        lines = [_summary(b), *tone, ""] + [f"• {headline_html(h)}" for h in b.headlines]
         return _cap(lines, limit)
-    block = news_block(backgrounds, top=10, per_ticker=3, limit=limit)
+    block = news_block(backgrounds, top=10, per_ticker=3, limit=limit, tones=tones)
     return block or "По бумагам портфеля новостей за неделю в архиве нет. Архив копится с момента запуска бота."
 
 
@@ -87,8 +92,12 @@ class NewsServiceLike(Protocol):
     async def background(self, tickers: Sequence[str], now: datetime | None = None) -> list[TickerNewsBackground]: ...
 
 
-def build_news_router(service: NewsServiceLike, tickers: Callable[[], Awaitable[list[str]]]) -> Router:
-    """tickers — тикеры портфеля (и watchlist), по которым строится фон."""
+ToneLines = Callable[[list[str]], Awaitable[Mapping[str, str]]]
+
+
+def build_news_router(service: NewsServiceLike, tickers: Callable[[], Awaitable[list[str]]],
+                      tone: ToneLines | None = None) -> Router:
+    """tickers — тикеры портфеля (и watchlist), по которым строится фон; tone — строки тона по тикерам."""
     router = Router(name="news")
 
     @router.message(Command("news"))
@@ -100,6 +109,7 @@ def build_news_router(service: NewsServiceLike, tickers: Callable[[], Awaitable[
             await message.answer("В портфеле пока нет бумаг — новостной фон строить не по чему.")
             return
         backgrounds = await service.background(wanted)
-        await message.answer(news_message(backgrounds, ticker), link_preview_options=NO_PREVIEW)
+        tones = await tone(wanted) if tone is not None else None
+        await message.answer(news_message(backgrounds, ticker, tones=tones), link_preview_options=NO_PREVIEW)
 
     return router

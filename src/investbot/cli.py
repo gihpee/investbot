@@ -5,8 +5,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -112,8 +113,13 @@ def _bot(settings: Settings) -> int:
     from investbot.channels.telegram.ideas import build_ideas_router, ideas_block
     from investbot.channels.telegram.journal import build_journal_router
     from investbot.channels.telegram.news import build_news_router, news_block
+    from investbot.channels.telegram.qa import build_qa_router
     from investbot.channels.telegram.report import ReportCenter, build_report_router
     from investbot.jobs.scheduler import SingleInstanceLock, build_scheduler
+    from investbot.llm_roles.allocation_advisor import AllocationAdvisor
+    from investbot.llm_roles.writer import Writer
+    from investbot.news.tone import tone_line
+    from investbot.reports.factsheet import build_weekly_factsheet
 
     if settings.telegram_bot_token is None:
         print("Не задан INVESTBOT_TELEGRAM_BOT_TOKEN", file=sys.stderr)
@@ -127,6 +133,12 @@ def _bot(settings: Settings) -> int:
         lock.acquire()
         try:
             async with build_services(settings) as services:
+                async def tone_lines(tickers: list[str]) -> dict[str, str]:
+                    if services.llm is None:
+                        return {}
+                    summaries = await services.tone.summaries(tickers, datetime.now(UTC))
+                    return {t: line for t, sm in summaries.items() if (line := tone_line(sm))}
+
                 async def events_block(as_of: date) -> str | None:
                     blocks: list[str] = []
                     try:  # публикация идей недели: предрегистрация и бумажное исполнение до отправки отчёта
@@ -138,14 +150,25 @@ def _bot(settings: Settings) -> int:
                     if cal := calendar_block(result.events, as_of, days=7):
                         blocks.append(cal)
                     try:
-                        if nb := news_block(await services.news.background(await services.held_tickers())):
+                        held = await services.held_tickers()
+                        if nb := news_block(await services.news.background(held), tones=await tone_lines(held)):
                             blocks.append(nb)
                     except Exception as e:
                         log.warning("report.news_block_failed", error=type(e).__name__)
                     return "\n\n".join(blocks) or None
 
+                writer = Writer(services.llm) if services.llm is not None else None
+
+                async def commentary(prep: Any) -> str | None:
+                    if writer is None:
+                        return None
+                    published = await services.ideas.latest(prep.plan.as_of)
+                    fs = build_weekly_factsheet(prep, published.ideas, settings.privacy_mode)
+                    return (await writer.write(fs)).html
+
                 center = ReportCenter(services.rebalance, settings.privacy_mode,
-                                      settings.quantity_message_ttl_sec, events_block)
+                                      settings.quantity_message_ttl_sec, events_block, commentary=commentary)
+                services.qa.set_last_plan(lambda: center.last_weekly)
 
                 async def startup(bot: Bot, dp: Dispatcher) -> None:
                     if owner is None:
@@ -175,6 +198,12 @@ def _bot(settings: Settings) -> int:
                     async def news_tinvest() -> None:
                         await services.news.collect_tinvest()
 
+                    async def news_tone() -> None:
+                        if services.llm is None:
+                            return
+                        await services.tone.annotate_pending(await services.held_tickers(), datetime.now(UTC),
+                                                             limit=30)
+
                     build_scheduler(settings.tz, {
                         "weekly_report": (settings.weekly_report_cron, weekly),
                         "monday_refresh": (settings.monday_refresh_cron, monday_refresh),
@@ -182,18 +211,21 @@ def _bot(settings: Settings) -> int:
                         "daily_readonly_check": (settings.daily_check_cron, daily_check),
                         "news_rss": ("*/5 * * * *", news_rss),  # каждый источник — со своим poll_sec
                         "news_tinvest": ("*/15 * * * *", news_tinvest),
+                        "news_tone": ("7,37 * * * *", news_tone),  # разметка тона новых новостей по позициям
                     }).start()
 
                 await run_bot(
                     token, services, owner, settings.privacy_mode, settings.telegram_proxy,
                     extra_routers=(
-                        build_allocation_router(services.allocation),
+                        build_allocation_router(services.allocation, advisor=AllocationAdvisor(services.llm)
+                                                if services.llm is not None else None),
                         build_report_router(center),
                         build_calendar_router(services.calendar),
-                        build_news_router(services.news, services.held_tickers),
+                        build_news_router(services.news, services.held_tickers, tone=tone_lines),
                         build_journal_router(services.paper),
                         build_ideas_router(services.ideas),
-                        build_edit_router(services.manual),  # последним: шаги мастеров принимают свободный текст
+                        build_edit_router(services.manual),  # шаги мастеров принимают свободный текст
+                        build_qa_router(services.qa),  # последним: забирает оставшийся свободный текст
                     ),
                     on_startup=startup,
                 )

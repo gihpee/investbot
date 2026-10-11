@@ -60,6 +60,7 @@ def status_message(st: SystemStatus) -> str:
         f"Т-Инвестиции: {broker}",
         f"Ручные счета: {st.manual_accounts}",
         f"IPS: {'версия ' + str(st.ips_version) if st.ips_version is not None else 'не утверждён'}",
+        f"LLM: {escape(st.llm)}",
     ]
     if st.problems:
         lines.append("")
