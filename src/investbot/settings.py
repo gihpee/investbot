@@ -43,6 +43,7 @@ class Settings(BaseSettings):
 
     # Расписание (Europe/Moscow): недельный отчёт и ежедневная проверка прав токена
     weekly_report_cron: str = "0 10 * * sat"
+    monday_refresh_cron: str = "40 8 * * mon"  # актуализация плана по свежим ценам до открытия основной сессии
     daily_check_cron: str = "0 9 * * *"
 
     @field_validator("telegram_proxy")

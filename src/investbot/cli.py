@@ -156,6 +156,9 @@ def _bot(settings: Settings) -> int:
                             await bot.send_message(owner, f"⛔ {e}\nБот остановлен. Выпустите токен «только чтение».")
                             await dp.stop_polling()
 
+                    async def monday_refresh() -> None:
+                        await center.send_refresh(bot, owner)
+
                     async def news_rss() -> None:
                         await services.news.collect_due()
 
@@ -164,6 +167,7 @@ def _bot(settings: Settings) -> int:
 
                     build_scheduler(settings.tz, {
                         "weekly_report": (settings.weekly_report_cron, weekly),
+                        "monday_refresh": (settings.monday_refresh_cron, monday_refresh),
                         "daily_readonly_check": (settings.daily_check_cron, daily_check),
                         "news_rss": ("*/5 * * * *", news_rss),  # каждый источник — со своим poll_sec
                         "news_tinvest": ("*/15 * * * *", news_tinvest),

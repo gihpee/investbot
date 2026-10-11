@@ -185,3 +185,27 @@ async def test_lot_mismatch_falls_back_to_average_with_note(tmp_path: Path) -> N
     assert any("лоты по операциям" in n for n in prep.notes)
     sell = next(a for a in prep.plan.actions if a.side == "sell")
     assert sell.est_tax_rub > 0  # по средней цене 100 при цене 150
+
+
+async def test_whatif_without_sells_and_monday_refresh_diff(tmp_path: Path) -> None:
+    from investbot.channels.telegram.report import ReportCenter, plan_diff, refresh_message
+
+    svc, journal = make_service(tmp_path)
+    nosell = await svc.whatif(TODAY, no_sells=True)
+    assert nosell.plan is not None and all(a.side == "buy" for a in nosell.plan.actions)
+    weekly = await svc.weekly_plan(TODAY)
+    refreshed = await svc.refresh(TODAY)
+    assert weekly.plan is not None and refreshed.plan is not None
+    gone, changed, added = plan_diff(weekly.plan, refreshed.plan)
+    assert not gone and not changed and not added  # те же данные — тот же план
+    assert "Изменений нет" in refresh_message(weekly, refreshed)
+    gone, _, added = plan_diff(weekly.plan, nosell.plan)
+    assert any("продажа" in g for g in gone)
+    kinds = [r["kind"] for r in await journal.records()]
+    assert kinds == ["whatif", "rebalance_plan", "rebalance_refresh"]
+
+    # решения по субботнему плану переносятся на совпадающие действия понедельничного
+    center = ReportCenter(svc, "weights")
+    center.decided[weekly.plan_id] = {weekly.plan.actions[0].seq: "accept"}
+    carried = center._carry_decisions(weekly, refreshed)
+    assert carried == {refreshed.plan.actions[0].seq: "accept"}

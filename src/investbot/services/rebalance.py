@@ -194,6 +194,14 @@ class RebalanceService:
     async def weekly_plan(self, as_of: date) -> PreparedPlan:
         return await self._prepare(as_of, ZERO, None, True, "rebalance_plan")
 
+    async def whatif(self, as_of: date, no_sells: bool = False) -> PreparedPlan:
+        """«Что если» (§10.2 п. 15): тот же движок с дополнительными ограничениями; пишется в журнал как whatif."""
+        return await self._prepare(as_of, ZERO, None, not no_sells, "whatif")
+
+    async def refresh(self, as_of: date) -> PreparedPlan:
+        """Понедельничная актуализация (§10.2 п. 16): пересчёт по свежим ценам."""
+        return await self._prepare(as_of, ZERO, None, True, "rebalance_refresh")
+
     async def invest(self, amount: Decimal, account_hint: str | None, as_of: date) -> PreparedPlan:
         """Пополнение: account_hint — id или часть названия счёта («иис»); по умолчанию — счёт с наибольшим кэшем."""
         return await self._prepare(as_of, amount, account_hint, False, "invest")

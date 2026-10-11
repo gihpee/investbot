@@ -176,7 +176,62 @@ def actions_keyboard(plan_id: str, plan: RebalancePlan | None,
     if len(decided) < len(plan.actions):
         rows.append([InlineKeyboardButton(text="✅ Принять всё", callback_data=f"rp:{plan_id}:all:accept"),
                      InlineKeyboardButton(text="🔐 Количества", callback_data=f"rp:{plan_id}:qty")])
+    if any(a.side == "sell" for a in plan.actions):
+        rows.append([InlineKeyboardButton(text="🔄 Без продаж", callback_data=f"rp:{plan_id}:wi:nosell"),
+                     InlineKeyboardButton(text="♻️ Пересчитать", callback_data=f"rp:{plan_id}:wi:fresh")])
+    else:
+        rows.append([InlineKeyboardButton(text="♻️ Пересчитать", callback_data=f"rp:{plan_id}:wi:fresh")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+ActionKey = tuple[str, str, str]  # (счёт, тикер, сторона)
+
+
+def _key(a: RebalanceAction) -> ActionKey:
+    return (a.account_id, a.ticker, a.side)
+
+
+def plan_diff(old: RebalancePlan, new: RebalancePlan) -> tuple[list[str], list[str], list[str]]:
+    """Понедельничная сверка: (больше не требуется, изменилось, новое) — строки без сумм и количеств."""
+    old_by = {_key(a): a for a in old.actions}
+    new_by = {_key(a): a for a in new.actions}
+    side = {"buy": "покупка", "sell": "продажа"}
+    gone = [f"{side[k[2]]} {escape(k[1])}" for k in old_by if k not in new_by]
+    changed = []
+    for k, a in new_by.items():
+        if k in old_by:
+            b = old_by[k]
+            parts = []
+            if a.lots != b.lots:
+                parts.append("объём " + ("больше" if a.lots > b.lots else "меньше"))
+            if a.limit_zone != b.limit_zone:
+                parts.append(f"зона {price_str(a.limit_zone[0])}–{price_str(a.limit_zone[1])}")
+            if parts:
+                changed.append(f"{side[k[2]]} {escape(k[1])}: {', '.join(parts)}")
+    added = [f"{side[k[2]]} {escape(k[1])}" for k in new_by if k not in old_by]
+    return gone, changed, added
+
+
+def refresh_message(old: PreparedPlan, new: PreparedPlan) -> str:
+    lines = [f"<b>🔁 План актуализирован по свежим ценам</b> · {new.plan.as_of:%d.%m}" if new.plan
+             else "<b>🔁 Актуализация плана</b>"]
+    lines.extend(escape(b) for b in new.degradation.banners())
+    if old.plan is None or new.plan is None:
+        lines.append("План сейчас не строится — см. причину выше." if new.plan is None
+                     else "Субботний план не был построен; ниже — актуальный.")
+        return "\n".join(lines)
+    gone, changed, added = plan_diff(old.plan, new.plan)
+    if not (gone or changed or added):
+        lines.append("Изменений нет — субботний план в силе.")
+    if gone:
+        lines.append("<b>Больше не требуется:</b> " + "; ".join(gone))
+    if changed:
+        lines.append("<b>Изменилось:</b> " + "; ".join(changed))
+    if added:
+        lines.append("<b>Новое:</b> " + "; ".join(added))
+    lines.append("")
+    lines.append(DISCLAIMER)
+    return "\n".join(lines)
 
 
 def quantities_message(prep: PreparedPlan) -> str:
@@ -213,6 +268,10 @@ class RebalanceServiceLike(Protocol):
 
     async def invest(self, amount: Decimal, account_hint: str | None, as_of: date) -> PreparedPlan: ...
 
+    async def whatif(self, as_of: date, no_sells: bool = False) -> PreparedPlan: ...
+
+    async def refresh(self, as_of: date) -> PreparedPlan: ...
+
     async def record_decision(self, plan_id: str, seq: int | None, decision: Decision) -> None: ...
 
 
@@ -227,6 +286,7 @@ class ReportCenter:
         self.events_block = events_block
         self.today = today
         self.plans: dict[str, PreparedPlan] = {}
+        self.last_weekly: PreparedPlan | None = None
         self.retry_after_sec = 3 * 3600
         self.decided: dict[str, dict[int, Decision]] = {}
 
@@ -250,6 +310,7 @@ class ReportCenter:
             return
         self.plans[prep.plan_id] = prep
         self.decided[prep.plan_id] = {}
+        self.last_weekly = prep
         events = await self._events(prep.plan.as_of if prep.plan else self.today())
         await bot.send_message(chat_id, weekly_report_message(prep, self.privacy_mode, events, scheduled),
                                reply_markup=actions_keyboard(prep.plan_id, prep.plan, {}))
@@ -260,6 +321,33 @@ class ReportCenter:
                 await self.send_weekly(bot, chat_id, scheduled=True, retry=False)
 
             asyncio.get_running_loop().create_task(later())
+
+    def _carry_decisions(self, old: PreparedPlan, new: PreparedPlan) -> dict[int, Decision]:
+        """Решения по субботнему плану переносятся на совпадающие действия нового плана."""
+        if old.plan is None or new.plan is None:
+            return {}
+        old_decided = self.decided.get(old.plan_id, {})
+        by_key = {_key(a): old_decided[a.seq] for a in old.plan.actions if a.seq in old_decided}
+        return {a.seq: by_key[_key(a)] for a in new.plan.actions if _key(a) in by_key}
+
+    async def send_refresh(self, bot: Bot, chat_id: int) -> None:
+        old = self.last_weekly
+        if old is None:
+            return  # субботнего отчёта не было (рестарт бота) — понедельничная сверка не нужна
+        new = await self.service.refresh(self.today())
+        self.plans[new.plan_id] = new
+        self.decided[new.plan_id] = self._carry_decisions(old, new)
+        self.last_weekly = new
+        await bot.send_message(chat_id, refresh_message(old, new),
+                               reply_markup=actions_keyboard(new.plan_id, new.plan, self.decided[new.plan_id]))
+
+    async def send_whatif(self, bot: Bot, chat_id: int, no_sells: bool) -> None:
+        prep = await self.service.whatif(self.today(), no_sells=no_sells)
+        self.plans[prep.plan_id] = prep
+        self.decided[prep.plan_id] = {}
+        title_line = "<b>Что если: без продаж</b>\n" if no_sells else "<b>Пересчёт по текущим данным</b>\n"
+        await bot.send_message(chat_id, title_line + weekly_report_message(prep, self.privacy_mode, None, False),
+                               reply_markup=actions_keyboard(prep.plan_id, prep.plan, {}))
 
     async def send_quantities(self, bot: Bot, chat_id: int, plan_id: str) -> None:
         prep = self.plans.get(plan_id)
@@ -335,6 +423,11 @@ def build_report_router(center: ReportCenter) -> Router:
             await cb.answer()
             if cb.bot is not None and cb.message is not None:
                 await center.send_quantities(cb.bot, cb.message.chat.id, plan_id)
+            return
+        if parts[2] == "wi":
+            await cb.answer("Пересчитываю…")
+            if cb.bot is not None and cb.message is not None:
+                await center.send_whatif(cb.bot, cb.message.chat.id, no_sells=parts[3] == "nosell")
             return
         decision = parts[3]
         decided = center.decided.setdefault(plan_id, {})
