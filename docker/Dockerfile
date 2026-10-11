@@ -15,6 +15,7 @@ RUN if ls /app/vendor/wheels/*.whl >/dev/null 2>&1; then \
 COPY src/ ./src/
 COPY config/ ./config/
 COPY migrations/ ./migrations/
+COPY prompts/ ./prompts/
 COPY alembic.ini ./
 RUN uv sync --frozen --no-dev
 
