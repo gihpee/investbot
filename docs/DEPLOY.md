@@ -176,11 +176,21 @@ SOCKS5 или HTTP. Три варианта, от простого к сложн
 Поддерживаются ключи `vless://` с Reality или TLS (транспорт TCP, WebSocket, gRPC); xhttp и серверы с выходом в РФ
 пропускаются.
 
-Ссылку на подписку (или ключи `vless://` по одному на строку) положите в секрет — не в `.env` и не в чат:
+Из российских дата-центров адрес подписки часто закрыт (DPI по имени сайта), а сами серверы VLESS + Reality
+доступны. Поэтому в секрете кроме ссылки хранятся и ключи: контейнер стартует на них и дальше обновляет подписку уже
+через VPN. Файл собирается на компьютере, где подписка открывается (нужен только python3), в каталоге проекта:
 
 ```bash
-nano secrets/vpn_subscription && chmod 600 secrets/vpn_subscription
+mkdir -p secrets && (umask 077; python3 docker/vpn/vpn.py --secret 'ССЫЛКА_НА_ПОДПИСКУ' > secrets/vpn_subscription)
 ```
+
+и копируется на сервер (не в `.env` и не в чат):
+
+```bash
+scp secrets/vpn_subscription root@SERVER:~/investbot/secrets/vpn_subscription
+```
+
+Если подписка открывается и с сервера, достаточно одной ссылки в этом файле.
 
 В `.env`:
 
@@ -193,7 +203,8 @@ INVESTBOT_TELEGRAM_PROXY=socks5://vpn:1080
 ops/compose.sh up -d --build
 ```
 
-Проверка: `ops/compose.sh logs vpn` — «серверов: N»; `ops/compose.sh run --rm bot doctor` — «Telegram Bot API через
+Проверка: `ops/compose.sh logs vpn` — «серверов: N» (сначала «стартовые ключи из секрета», через минуту —
+«подписка загружена через VPN», если напрямую она закрыта); `ops/compose.sh run --rm bot doctor` — «Telegram Bot API через
 прокси ✅». Если через VPN нужен и LLM-провайдер — `VPN_ALLOW_DOMAINS=telegram.org,домен-провайдера` и
 `INVESTBOT_LLM_PROXY=socks5://vpn:1080` в `.env`.
 

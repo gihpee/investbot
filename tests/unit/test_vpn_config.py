@@ -47,20 +47,51 @@ def test_unsupported_transport_skipped(vpn: ModuleType) -> None:
 
 def test_subscription_base64_and_exclusions(vpn: ModuleType) -> None:
     sub = base64.urlsafe_b64encode("\n".join([REALITY, WS_TLS, XHTTP, RU]).encode()).decode().rstrip("=")
-    links = vpn.read_links("https://sub.example.net/token", fetch=lambda _url: sub)
-    assert len(links) == 4
+    links, fresh = vpn.read_links("https://sub.example.net/token", fetch=lambda _url, _via: sub)
+    assert len(links) == 4 and fresh
     config, skipped = vpn.build_config(links)
     assert skipped == 2  # xhttp не поддерживается, выход в РФ исключён по имени
     auto, *servers = config["outbounds"]
     assert auto["type"] == "urltest" and auto["outbounds"] == [s["tag"] for s in servers]
     assert [s["tag"] for s in servers] == ["01 🇳🇱 NL", "02 DE"]
     rules = config["route"]["rules"]
-    assert rules[1] == {"domain_suffix": ["telegram.org"], "outbound": "auto"}
-    assert rules[-1]["action"] == "reject"  # всё, кроме разрешённых доменов, наружу не уходит
+    assert {"domain_suffix": ["telegram.org"], "outbound": "auto"} in rules
+    assert rules[-1] == {"inbound": ["socks-in"], "action": "reject"}  # остальное от бота наружу не уходит
+    sub_in = next(i for i in config["inbounds"] if i["tag"] == "sub-in")
+    assert sub_in["listen"] == "127.0.0.1"  # вход для загрузки подписки — только изнутри контейнера
 
 
 def test_plain_links_in_secret(vpn: ModuleType) -> None:
-    assert vpn.read_links(f"{REALITY}\n{WS_TLS}\n") == [REALITY, WS_TLS]
+    assert vpn.read_links(f"{REALITY}\n{WS_TLS}\n") == ([REALITY, WS_TLS], True)
+
+
+def _blocked_directly(sub: str):  # type: ignore[no-untyped-def]
+    calls: list[bool] = []
+
+    def fetch(_url: str, via_vpn: bool) -> str:
+        calls.append(via_vpn)
+        if not via_vpn:
+            raise TimeoutError("The handshake operation timed out")
+        return sub
+
+    return fetch, calls
+
+
+def test_blocked_subscription_falls_back_to_keys_then_vpn(vpn: ModuleType) -> None:
+    secret = f"https://sub.example.net/token\n{REALITY}\n"
+    fetch, calls = _blocked_directly(f"{REALITY}\n{WS_TLS}")
+    # VPN ещё не поднят: подписка недоступна — стартовые ключи из секрета
+    assert vpn.read_links(secret, vpn_up=False, fetch=fetch) == ([REALITY], False)
+    assert calls == [False]
+    # VPN поднят: подписка загружается через него
+    assert vpn.read_links(secret, vpn_up=True, fetch=fetch) == ([REALITY, WS_TLS], True)
+    assert calls == [False, False, True]
+
+
+def test_blocked_subscription_without_keys(vpn: ModuleType) -> None:
+    fetch, _ = _blocked_directly("")
+    with pytest.raises(ValueError, match="стартовых ключей"):
+        vpn.read_links("https://sub.example.net/token", fetch=fetch)
 
 
 def test_no_usable_servers(vpn: ModuleType) -> None:
