@@ -1,6 +1,7 @@
 # Развёртывание (docs/DEPLOY.md). Запуск через обёртку ops/compose.sh — она передаёт .env из корня проекта.
 #   ops/compose.sh up -d --build                — бот и Postgres
 #   ops/compose.sh --profile tunnel up -d       — плюс SOCKS-туннель к зарубежному серверу (Telegram/LLM)
+#   COMPOSE_PROFILES=vpn в .env                 — плюс SOCKS5 через VPN-подписку (VLESS) для Telegram
 #   ops/compose.sh run --rm bot doctor          — проверка конфигурации и сети из контейнера
 name: investbot
 
@@ -43,6 +44,19 @@ services:
     tmpfs: [/tmp]
     security_opt: ["no-new-privileges:true"]
 
+  vpn:
+    profiles: ["vpn"]
+    build: {context: vpn}
+    user: "${INVESTBOT_UID:-10001}:${INVESTBOT_GID:-10001}"   # = владелец secrets/vpn_subscription
+    environment:
+      VPN_ALLOW_DOMAINS: ${VPN_ALLOW_DOMAINS:-telegram.org}  # через VPN — только эти домены, остальное отклоняется
+    secrets: [vpn_subscription]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
   tunnel:
     profiles: ["tunnel"]
     build: {context: tunnel}
@@ -59,6 +73,8 @@ secrets:
     file: ../secrets/pg_password          # случайный пароль; каталог secrets/ не в git
   ca_bundle:
     file: ../data/local/ca-bundle.pem      # системные корни + сертификаты Минцифры (docs/DEPLOY.md, шаг 4)
+  vpn_subscription:
+    file: ../secrets/vpn_subscription      # только для профиля vpn: ссылка на подписку или ссылки vless://
   tunnel_key:
     file: ../secrets/tunnel_key            # только для профиля tunnel: приватный SSH-ключ к зарубежному серверу
   tunnel_known_hosts:
