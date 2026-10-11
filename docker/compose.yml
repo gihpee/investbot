@@ -1,4 +1,7 @@
-# VPS в РФ (ADR-04): бот, Postgres. Туннель к Telegram (xray) — отдельным сервисом при необходимости.
+# Развёртывание (docs/DEPLOY.md). Запуск через обёртку ops/compose.sh — она передаёт .env из корня проекта.
+#   ops/compose.sh up -d --build                — бот и Postgres
+#   ops/compose.sh --profile tunnel up -d       — плюс SOCKS-туннель к зарубежному серверу (Telegram/LLM)
+#   ops/compose.sh run --rm bot doctor          — проверка конфигурации и сети из контейнера
 name: investbot
 
 services:
@@ -21,32 +24,45 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      secrets: [ca_bundle]          # для установки SDK Т-Инвестиций из индекса Т-Банка при сборке
     depends_on:
       postgres:
         condition: service_healthy
     env_file: ../.env
     environment:
       INVESTBOT_CA_BUNDLE: /app/data/local/ca-bundle.pem
-      # пароль подставляется из секрета при старте, в .env его нет
-      PG_PASSWORD_FILE: /run/secrets/pg_password
+      INVESTBOT_DATA_DIR: /app/data/local
+      PG_PASSWORD_FILE: /run/secrets/pg_password   # пароль подставляется из секрета, в .env его нет
     secrets: [pg_password]
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - >-
-        export INVESTBOT_DATABASE_URL="postgresql+asyncpg://investbot:$$(cat $$PG_PASSWORD_FILE)@postgres/investbot"
-        && /app/.venv/bin/investbot db upgrade && exec /app/.venv/bin/investbot bot
+    command: ["bot"]                # другие команды: ops/compose.sh run --rm bot doctor --network
+    user: "${INVESTBOT_UID:-10001}:${INVESTBOT_GID:-10001}"   # = владелец data/local на сервере
     volumes:
-      - ../config/ips.yaml:/app/config/ips.yaml
-      - ../config/manual_portfolio.yaml:/app/config/manual_portfolio.yaml
-      - ../data/local:/app/data/local
+      - ../data/local:/app/data/local   # состояние: IPS, анкета, кэши, CA bundle, блокировка планировщика
     restart: unless-stopped
     read_only: true
     tmpfs: [/tmp]
     security_opt: ["no-new-privileges:true"]
 
+  tunnel:
+    profiles: ["tunnel"]
+    build: {context: tunnel}
+    environment:
+      TUNNEL_HOST: ${TUNNEL_HOST:-}
+      TUNNEL_USER: ${TUNNEL_USER:-tunnel}
+      TUNNEL_PORT: ${TUNNEL_PORT:-22}
+    secrets: [tunnel_key, tunnel_known_hosts]
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+
 secrets:
   pg_password:
-    file: ../secrets/pg_password   # создайте файл со случайным паролем; каталог secrets/ не в git
+    file: ../secrets/pg_password          # случайный пароль; каталог secrets/ не в git
+  ca_bundle:
+    file: ../data/local/ca-bundle.pem      # системные корни + сертификаты Минцифры (docs/DEPLOY.md, шаг 4)
+  tunnel_key:
+    file: ../secrets/tunnel_key            # только для профиля tunnel: приватный SSH-ключ к зарубежному серверу
+  tunnel_known_hosts:
+    file: ../secrets/tunnel_known_hosts
 
 volumes:
   pgdata:

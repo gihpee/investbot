@@ -5,6 +5,7 @@
 **Бот не совершает сделок** — только рекомендации, решения принимаете вы.
 
 Исследование и архитектура: [docs/README.md](docs/README.md) → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+**Развёртывание на VPS:** [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Что уже работает (Ф0 → Ф1 → Ф2a)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 
 import httpx
@@ -12,7 +13,14 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from investbot.adapters.llm.client import OpenAICompatClient
-from investbot.adapters.llm.config import LLMConfig, load_llm_config
+from investbot.adapters.llm.config import (
+    ChainEntry,
+    LLMConfig,
+    ModelSpec,
+    ProviderBudget,
+    ProviderSpec,
+    load_llm_config,
+)
 from investbot.adapters.llm.ledger import CallLedger
 from investbot.adapters.llm.router import LLMRouter, utcnow
 
@@ -47,8 +55,70 @@ def build_clients(
             rps=spec.rps,
             max_concurrency=spec.max_concurrency,
             verify=verify,
+            proxy=env.get(PROXY_ENV, "").strip() or None,
         )
     return clients
+
+
+PROXY_ENV = "INVESTBOT_LLM_PROXY"  # http(s):// или socks5:// — если провайдер недоступен напрямую с сервера
+CUSTOM = "custom"
+TAGGER_ROLES = ("tagger", "tagger_universe")
+
+
+def _flag(env: Mapping[str, str], name: str, default: bool) -> bool:
+    raw = env.get(name, "").strip().lower()
+    return default if not raw else raw in ("1", "true", "yes", "да", "on")
+
+
+def _dec(env: Mapping[str, str], name: str, default: str) -> Decimal:
+    raw = env.get(name, "").strip().replace(",", ".")
+    return Decimal(raw or default)
+
+
+def custom_config(env: Mapping[str, str], base: LLMConfig) -> LLMConfig | None:
+    """Свой OpenAI-совместимый провайдер из окружения — заменяет провайдеров из config/llm.yaml.
+
+    INVESTBOT_LLM_BASE_URL, INVESTBOT_LLM_API_KEY, INVESTBOT_LLM_MODEL — обязательны;
+    INVESTBOT_LLM_MODEL_FAST — модель для разметки новостей (по умолчанию та же);
+    INVESTBOT_LLM_DATA_IN_RU — провайдер хранит и обрабатывает данные в РФ (по умолчанию нет);
+    INVESTBOT_LLM_ALLOW_PORTFOLIO_ABROAD — явное согласие отправлять доли портфеля провайдеру вне РФ (по умолчанию нет);
+    INVESTBOT_LLM_PRICE_IN / _OUT — ₽ за 1M токенов (для бюджета), INVESTBOT_LLM_MONTHLY_RUB — месячный лимит;
+    INVESTBOT_LLM_QA_QUOTA — вопросов в месяц;
+    INVESTBOT_LLM_SUPPORTS_TOOLS / _JSON_MODE / _REASONING — возможности модели.
+    """
+    url, model = env.get("INVESTBOT_LLM_BASE_URL", "").strip(), env.get("INVESTBOT_LLM_MODEL", "").strip()
+    if not (url and model and env.get("INVESTBOT_LLM_API_KEY", "").strip()):
+        return None
+    fast = env.get("INVESTBOT_LLM_MODEL_FAST", "").strip() or model
+    in_ru = _flag(env, "INVESTBOT_LLM_DATA_IN_RU", False)
+    abroad_ok = _flag(env, "INVESTBOT_LLM_ALLOW_PORTFOLIO_ABROAD", False)
+    if not in_ru and abroad_ok:
+        log.warning("llm.portfolio_abroad_allowed")  # осознанное решение пользователя: доли портфеля уходят за рубеж
+    spec = {
+        "data_in_ru": in_ru or abroad_ok,
+        "reasoning": _flag(env, "INVESTBOT_LLM_REASONING", False),
+        "price_in_rub_per_m": _dec(env, "INVESTBOT_LLM_PRICE_IN", "300"),
+        "price_out_rub_per_m": _dec(env, "INVESTBOT_LLM_PRICE_OUT", "1200"),
+    }
+    models = {model: ModelSpec(**spec)}
+    if fast != model:
+        models[fast] = ModelSpec(**spec)
+    provider = ProviderSpec(
+        base_url=url, api_key_env="INVESTBOT_LLM_API_KEY", timeout_s=float(_dec(env, "INVESTBOT_LLM_TIMEOUT", "120")),
+        supports_tools=_flag(env, "INVESTBOT_LLM_SUPPORTS_TOOLS", True),
+        supports_response_format_json=_flag(env, "INVESTBOT_LLM_JSON_MODE", True),
+        models=models,
+    )
+    monthly = _dec(env, "INVESTBOT_LLM_MONTHLY_RUB", "3000")
+    roles = {role: (ChainEntry(provider=CUSTOM, model=fast if role in TAGGER_ROLES else model),)
+             for role in base.roles}
+    return base.model_copy(update={
+        "primary_provider": CUSTOM,
+        "providers": {CUSTOM: provider},
+        "budgets": {CUSTOM: ProviderBudget(monthly=monthly, per_run=monthly / 10,
+                                           qa_monthly_quota=int(_dec(env, "INVESTBOT_LLM_QA_QUOTA", "100")))},
+        "roles": roles,
+    })
 
 
 def build_router(
@@ -67,6 +137,7 @@ def build_router(
     корней с Russian Trusted Root CA (`Settings.ca_bundle`), если он нужен.
     """
     cfg = load_llm_config(cfg_path)
+    cfg = custom_config(settings_env, cfg) or cfg
     clients = build_clients(cfg, settings_env, transport=transport, sleep=sleep, verify=verify)
     if not clients:
         log.warning("llm.disabled", reason="no_api_keys")

@@ -15,13 +15,38 @@ from investbot.ops.logging import setup_logging
 from investbot.settings import Settings
 
 
-def _doctor(settings: Settings) -> int:
-    from investbot.ops.doctor import run_doctor
+def _doctor(settings: Settings, network_only: bool = False) -> int:
+    import os
 
-    checks = asyncio.run(run_doctor(settings))
-    for c in checks:
-        print(f"{'✅' if c.ok else '❌'} {c.name}: {c.detail}")
-    return 0 if all(c.ok for c in checks) else 1
+    from dotenv import dotenv_values
+
+    from investbot.news.sources import load_sources
+    from investbot.ops.doctor import run_doctor
+    from investbot.ops.netcheck import run_netcheck, verdict
+
+    env = {**os.environ, **{k: v for k, v in dotenv_values(".env").items() if v}}
+    ok = True
+    if not network_only:
+        checks = asyncio.run(run_doctor(settings))
+        print("— Конфигурация —")
+        for c in checks:
+            print(f"{'✅' if c.ok else '❌'} {c.name}: {c.detail}")
+        ok = all(c.ok for c in checks)
+    print("\n— Сеть с этого сервера —")
+    results = asyncio.run(run_netcheck(
+        load_sources(settings.config_dir / "sources.yaml"), settings.ca_bundle,
+        telegram_proxy=settings.telegram_proxy,
+        llm_base_url=env.get("INVESTBOT_LLM_BASE_URL"), llm_api_key=env.get("INVESTBOT_LLM_API_KEY"),
+        llm_proxy=env.get("INVESTBOT_LLM_PROXY"),
+    ))
+    for r in sorted(results, key=lambda x: (x.group != "broker", x.group != "market", x.group != "telegram",
+                                            x.group != "llm", x.name)):
+        ms = f" · {r.ms} мс" if r.ms is not None else ""
+        print(f"{'✅' if r.ok else '❌'} {r.name}: {r.detail}{ms}")
+    print()
+    for line in verdict(results):
+        print(line)
+    return 0 if ok and all(r.ok for r in results if r.group in ("broker", "market", "telegram")) else 1
 
 
 def _certs(settings: Settings, certs_dir: Path) -> int:
@@ -240,7 +265,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="investbot")
     parser.add_argument("--log-level", default="INFO")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("doctor", help="проверить сеть, сертификаты, SDK и права токена")
+    doctor = sub.add_parser("doctor", help="проверить сеть, сертификаты, SDK и права токена")
+    doctor.add_argument("--network", action="store_true", help="только проверка сети (для выбора VPS)")
     certs = sub.add_parser("certs", help="собрать CA bundle: системные корни + сертификаты из каталога")
     certs.add_argument("--dir", type=Path, default=Path("docker/certs"))
     db = sub.add_parser("db", help="миграции БД")
@@ -257,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings()
     match args.cmd:
         case "doctor":
-            return _doctor(settings)
+            return _doctor(settings, network_only=args.network)
         case "certs":
             return _certs(settings, args.dir)
         case "db":

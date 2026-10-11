@@ -226,6 +226,7 @@ class OpenAICompatClient:
         backoff: Sequence[float] = BACKOFF,
         max_retry_after: float = MAX_RETRY_AFTER,
         verify: str | Path | bool = True,
+        proxy: str | None = None,
     ) -> None:
         if not api_key:
             raise ValueError("api_key пуст")
@@ -242,6 +243,7 @@ class OpenAICompatClient:
             timeout=timeout,
             transport=transport,
             verify=_ssl(verify),
+            proxy=proxy if transport is None else None,
             headers={
                 **dict(headers or {}),
                 "Authorization": f"{auth_scheme} {api_key}",

@@ -70,7 +70,10 @@ class Settings(BaseSettings):
 
     @property
     def ips_path(self) -> Path:
-        return self.config_dir / "ips.yaml"
+        """Утверждённая аллокация — изменяемое состояние, живёт в data_dir (в контейнере корень только для чтения).
+        Старое расположение config/ips.yaml поддерживается, если файл там уже есть."""
+        legacy = self.config_dir / "ips.yaml"
+        return legacy if legacy.exists() else self.data_dir / "ips.yaml"
 
     @property
     def manual_portfolio_path(self) -> Path:

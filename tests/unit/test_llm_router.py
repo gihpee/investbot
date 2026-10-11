@@ -763,3 +763,23 @@ def test_shipped_config_roles_and_residency() -> None:
     assert not cfg.providers["cloudru"].models["deepseek-ai/DeepSeek-V4-Flash"].data_in_ru
     assert cfg.breaker == BreakerSpec(errors=3, window_s=300, cooldown_s=600)
     assert cfg.degrade_at == Decimal("0.9")
+
+
+def test_custom_provider_from_env_replaces_yaml() -> None:
+    from investbot.adapters.llm.factory import build_clients, custom_config
+
+    base = load_llm_config(ROOT / "config" / "llm.yaml")
+    env = {"INVESTBOT_LLM_BASE_URL": "https://llm.example.com/v1", "INVESTBOT_LLM_API_KEY": "sk-test",
+           "INVESTBOT_LLM_MODEL": "big-model", "INVESTBOT_LLM_MODEL_FAST": "small-model",
+           "INVESTBOT_LLM_MONTHLY_RUB": "1500", "INVESTBOT_LLM_PROXY": "socks5://127.0.0.1:1080"}
+    cfg = custom_config(env, base)
+    assert cfg is not None and cfg.primary_provider == "custom" and list(cfg.providers) == ["custom"]
+    assert {e.model for e in cfg.roles["writer"]} == {"big-model"} and cfg.roles["tagger"][0].model == "small-model"
+    # по умолчанию провайдер считается зарубежным: портфельный контекст ему не отправляется
+    assert not cfg.providers["custom"].models["big-model"].data_in_ru
+    assert cfg.budgets["custom"].monthly == 1500
+    clients = build_clients(cfg, env)
+    assert list(clients) == ["custom"] and clients["custom"].host == "llm.example.com"
+    allowed = custom_config({**env, "INVESTBOT_LLM_ALLOW_PORTFOLIO_ABROAD": "true"}, base)
+    assert allowed is not None and allowed.providers["custom"].models["big-model"].data_in_ru
+    assert custom_config({"INVESTBOT_LLM_BASE_URL": "https://x/v1"}, base) is None
