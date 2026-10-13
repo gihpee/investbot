@@ -36,10 +36,20 @@ class SdkNotInstalled(RuntimeError):
 
 
 def sdk_client_factory(app_name: str, ca_bundle: Path | None = None) -> ClientFactory:
-    """Фабрика клиентов SDK. Проверка версии SDK по сети отключена (телеметрия, отчёт 01)."""
+    """Фабрика клиентов SDK. Проверка версии SDK по сети отключена (телеметрия, отчёт 01).
+
+    Клиент `t_tech.invest.grpc.AsyncClient` не инициализирует error hub SDK (Sentry на error-hub.tbank.ru) — это делает
+    только устаревший `t_tech.invest.AsyncClient`, поэтому отчёты об ошибках из бота не отправляются.
+    """
     if ca_bundle is not None:
         # gRPC берёт корневые сертификаты из этого файла: системные + Russian Trusted Root CA
         os.environ.setdefault("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", str(ca_bundle))
+        # Свой bundle — единственный источник корней: иначе SDK подставляет встроенный certs/RussianTrustedRootCA.pem,
+        # а в wheel 1.51.0 с GitHub там кроме корня Минцифры самоподписанный TINKOFFBANK-ROOTCA (в исходниках его нет)
+        os.environ["SSL_TBANK_VERIFY"] = "false"
+    # Системный резолвер вместо встроенного c-ares: тот ходит к DNS-серверам напрямую и молча зависает в сетях,
+    # где прямые DNS-запросы закрыты (VPN, корпоративные сети), — канал gRPC не поднимается без внятной ошибки
+    os.environ.setdefault("GRPC_DNS_RESOLVER", "native")
     try:
         from t_tech.invest.grpc import AsyncClient
     except ImportError as e:  # pragma: no cover - зависит от окружения

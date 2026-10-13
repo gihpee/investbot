@@ -25,8 +25,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Официальный SDK живёт только в GitLab-индексе Т-Банка (PyPI-проект в карантине), см. docs/research/01-tinvest-api.md.
-# Ставится отдельно: см. README, раздел «SDK Т-Инвестиций».
+# Официальный SDK Т-Инвестиций (PyPI-проект в карантине). Пока opensource.tbank.ru недоступен, Т-Банк выложил его
+# на GitHub (Invest-SDK/invest-python): wheel берётся по фиксированному коммиту, sha256 — в uv.lock (README, «SDK»).
+tinvest = ["t-tech-investments==1.51.0"]
+
+[tool.uv.sources]
+t-tech-investments = { url = "https://raw.githubusercontent.com/Invest-SDK/invest-python/79c1eec76a691c15b55e825a8e4d1a94abe75f67/t_tech_investments-1.51.0-py3-none-any.whl" }
 
 [project.scripts]
 investbot = "investbot.cli:main"

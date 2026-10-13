@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from enum import Enum
+from pathlib import Path
 from types import SimpleNamespace as NS
 from typing import Any
 
@@ -286,3 +289,16 @@ async def test_broker_trade_ops_pages_through_cursor() -> None:
     async with TInvestBroker({"main": "t.fake"}, factory, OpsSchemas) as broker:
         ops = await broker.trade_ops("A1", datetime(2014, 1, 1, tzinfo=UTC))
     assert [(o.kind, o.qty, o.ticker) for o in ops] == [("buy", 10, "AAAA"), ("sell", 5, "AAAA")]
+
+
+def test_sdk_uses_only_our_ca_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # встроенный в SDK certs/RussianTrustedRootCA.pem не используется: корни — только из нашего bundle
+    from investbot.adapters.tinvest.broker import SdkNotInstalled, sdk_client_factory
+
+    bundle = tmp_path / "ca-bundle.pem"
+    monkeypatch.delenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", raising=False)
+    monkeypatch.setenv("SSL_TBANK_VERIFY", "true")
+    with contextlib.suppress(SdkNotInstalled):
+        sdk_client_factory("investbot", bundle)
+    assert os.environ["GRPC_DEFAULT_SSL_ROOTS_FILE_PATH"] == str(bundle)
+    assert os.environ["SSL_TBANK_VERIFY"] == "false"

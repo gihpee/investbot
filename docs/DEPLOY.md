@@ -12,7 +12,7 @@
 | API Т-Инвестиций | ✅ | ✅ отвечает (нужен сертификат Минцифры) — но зависит от сети хостера |
 | MOEX ISS (история, облигации, кривая ОФЗ, индексы) | ✅ | ❌ таймаут |
 | Часть новостных лент (MOEX, Smart-lab, Финмаркет) | ✅ | ❌ таймаут |
-| Индекс SDK Т-Банка (opensource.tbank.ru) | ✅ | ❌ таймаут |
+| GitHub (SDK Т-Инвестиций при сборке образа) | ✅ | ✅ |
 | Telegram Bot API | ❔ возможны ограничения — проверяется `doctor` | ✅ |
 | Зарубежный LLM-провайдер | ❔ часть провайдеров блокирует российские IP | ✅ |
 
@@ -83,9 +83,9 @@ rsync -az --delete --exclude .venv --exclude data/local --exclude secrets --excl
 
 ## 4. Сертификаты Минцифры
 
-API Т-Инвестиций и индекс SDK используют сертификаты Russian Trusted Root CA. В систему их ставить не нужно —
-только в bundle для бота. Корневой и выпускающие сертификаты скачиваются с сервера Госуслуг (gu-st.ru, раздел
-«Сертификаты Минцифры» на https://www.gosuslugi.ru/crt); для opensource.tbank.ru нужен выпускающий 2024 года:
+API Т-Инвестиций использует сертификаты Russian Trusted Root CA. В систему их ставить не нужно — только в bundle
+для бота. Корневой и выпускающие сертификаты скачиваются с сервера Госуслуг (gu-st.ru, раздел «Сертификаты Минцифры»
+на https://www.gosuslugi.ru/crt):
 
 ```bash
 cd /opt/investbot && mkdir -p docker/certs data/local && for f in russian_trusted_root_ca_pem.crt russian_trusted_sub_ca_pem.crt russian_trusted_sub_ca_2024_pem.crt; do curl -fsSo docker/certs/$f https://gu-st.ru/content/lending/$f; done

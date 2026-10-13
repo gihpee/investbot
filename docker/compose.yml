@@ -25,13 +25,12 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-      secrets: [ca_bundle]          # для установки SDK Т-Инвестиций из индекса Т-Банка при сборке
     depends_on:
       postgres:
         condition: service_healthy
     env_file: ../.env
     environment:
-      INVESTBOT_CA_BUNDLE: /app/data/local/ca-bundle.pem
+      INVESTBOT_CA_BUNDLE: /app/data/local/ca-bundle.pem   # системные корни + Минцифры (docs/DEPLOY.md, шаг 4)
       INVESTBOT_DATA_DIR: /app/data/local
       PG_PASSWORD_FILE: /run/secrets/pg_password   # пароль подставляется из секрета, в .env его нет
     secrets: [pg_password]
@@ -71,8 +70,6 @@ services:
 secrets:
   pg_password:
     file: ../secrets/pg_password          # случайный пароль; каталог secrets/ не в git
-  ca_bundle:
-    file: ../data/local/ca-bundle.pem      # системные корни + сертификаты Минцифры (docs/DEPLOY.md, шаг 4)
   vpn_subscription:
     file: ../secrets/vpn_subscription      # только для профиля vpn: ссылка на подписку или ссылки vless://
   tunnel_key:

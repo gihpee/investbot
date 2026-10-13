@@ -1,13 +1,13 @@
 # Сертификаты Минцифры
 
-API Т-Инвестиций, GitLab Т-Банка (индекс SDK) и часть российских сервисов используют TLS-сертификаты
+API Т-Инвестиций и часть российских сервисов используют TLS-сертификаты
 от «Russian Trusted Root CA». Их нет в стандартных хранилищах, поэтому без них соединение не проверяется.
 
 Бот **не** устанавливает их в систему. Они нужны только процессу бота:
 
 1. Скачайте с портала Госуслуг (раздел «Сертификаты Минцифры») корневой сертификат
-   `russian_trusted_root_ca_pem.crt` и выпускающий `russian_trusted_sub_ca_pem.crt`
-   (для opensource.tbank.ru нужен выпуск Sub CA 2024 года, см. docs/research/01-tinvest-api.md).
+   `russian_trusted_root_ca_pem.crt` и выпускающие `russian_trusted_sub_ca_pem.crt`,
+   `russian_trusted_sub_ca_2024_pem.crt` (команда скачивания — docs/DEPLOY.md, шаг 4).
 2. Положите оба файла в этот каталог (`*.crt` и `*.pem` в git не попадают).
 3. Выполните `uv run investbot certs` — будет собран `data/local/ca-bundle.pem`
    (системные корни + эти сертификаты), путь пропишите в `.env` как `INVESTBOT_CA_BUNDLE`.

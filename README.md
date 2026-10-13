@@ -86,14 +86,19 @@ API Т-Инвестиций использует сертификаты Russian 
 
 ## SDK Т-Инвестиций
 
-Официальный SDK `t-tech-investments` (1.51.0) публикуется только в GitLab-индексе Т-Банка
-(PyPI-проект в карантине, старый `tinkoff-investments` удалён). Для доступа к индексу нужен тот же CA bundle:
+Официальный SDK `t-tech-investments` 1.51.0 подключён как extra `tinvest` (PyPI-проект в карантине, старый
+`tinkoff-investments` удалён). Пока площадка opensource.tbank.ru недоступна, Т-Банк выложил SDK на GitHub
+(`Invest-SDK/invest-python`); wheel берётся по фиксированному коммиту, его sha256 записан в `uv.lock`:
 
 ```bash
-uv pip install "t-tech-investments==1.51.0" --index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple --cert data/local/ca-bundle.pem
+uv sync --extra tinvest
 ```
 
-Для Docker-образа скачайте wheel в `vendor/wheels/` (`uv pip download` или `pip download` с теми же параметрами).
+Docker-образ ставит SDK так же. Перед закреплением wheel сверен с исходниками релиза 1.51.0 (история репозитория —
+продолжение официального `RussianInvestments/invest-python`): весь код совпадает, отличается только встроенный
+`certs/RussianTrustedRootCA.pem` — в нём дополнительно самоподписанный `TINKOFFBANK-ROOTCA`. Поэтому при заданном
+`INVESTBOT_CA_BUNDLE` бот выключает встроенные корни SDK (`SSL_TBANK_VERIFY=false`) и проверяет TLS только по своему
+bundle.
 
 ## Ручной портфель и IPS
 

@@ -82,8 +82,8 @@ async def run_netcheck(
     ctx = _ctx(cafile)
     checks = [
         _probe("broker", "Т-Инвестиции API (invest-public-api.tbank.ru)", "https://invest-public-api.tbank.ru/", ctx),
-        _probe("sdk", "Индекс SDK Т-Банка (opensource.tbank.ru)",
-               "https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple/t-tech-investments/", ctx),
+        _probe("sdk", "SDK Т-Инвестиций для сборки (GitHub)", "https://raw.githubusercontent.com/Invest-SDK/invest-python/"
+               "79c1eec76a691c15b55e825a8e4d1a94abe75f67/README.md", ctx, ok_statuses=(200,)),
         _probe("market", "MOEX ISS (данные)", "https://iss.moex.com/iss/engines.json?iss.meta=off", ctx,
                expect_json=True, ok_statuses=(200,)),
         _probe("market", "ЦБ РФ (cbr.ru)", "https://www.cbr.ru/scripts/XML_daily.asp", ctx, ok_statuses=(200,)),
